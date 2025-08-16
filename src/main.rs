@@ -193,13 +193,15 @@ fn grab_frame(input_uri: &str, thumbnail_size: u16) -> (u32, u32, gst::Sample) {
         120
     };
 
-    // Seek to requested position
-    pipeline
-        .seek_simple(
-            gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-            gst::ClockTime::from_seconds(seek_to_sec),
-        )
-        .unwrap();
+    // Seek to calculated position
+    //
+    // Allow to fail in the hope that we still get a frame
+    if let Err(err) = pipeline.seek_simple(
+        gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+        gst::ClockTime::from_seconds(seek_to_sec),
+    ) {
+        eprintln!("Failed to seek to second {seek_to_sec}: {err}");
+    }
 
     // Set to playing for appsink to return frames
     pipeline.set_state(gst::State::Playing).unwrap();
