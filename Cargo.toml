@@ -1,0 +1,12 @@
+[package]
+name = "gstreamer-thumbnailer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gio = { version = "0.21.1", features = ["v2_62"] }
+glib = "0.21.1"
+gstreamer = { version = "0.24.1", features = ["v1_26"] }
+gstreamer-app = "0.24.0"
+gstreamer-video = "0.24.1"
+png = "0.17.16"
