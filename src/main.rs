@@ -1,8 +1,9 @@
 use std::ffi::{OsStr, OsString};
 
+use gio::glib;
 use gio::prelude::*;
 use gst::prelude::*;
-use {gstreamer as gst, gstreamer_app as gst_app, gstreamer_video as gst_video};
+use {gstreamer as gst, gstreamer_app as gst_app};
 
 fn main() {
     let app = gio::Application::new(None, gio::ApplicationFlags::HANDLES_COMMAND_LINE);
@@ -61,35 +62,14 @@ fn main() {
 }
 
 fn xx(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) {
-    let input_file = gio::File::for_uri(input_uri);
-
-    let file_info = input_file
-        .query_info(
-            &format!(
-                "{},{}",
-                gio::FILE_ATTRIBUTE_TIME_MODIFIED,
-                gio::FILE_ATTRIBUTE_STANDARD_SIZE
-            ),
-            gio::FileQueryInfoFlags::NONE,
-            gio::Cancellable::NONE,
-        )
-        .unwrap();
-
-    let (width, height, sample) = grab_frame(input_uri, thumbnail_size);
+    let sample = grab_frame(input_uri, thumbnail_size);
     let buffer = sample.buffer().unwrap();
     let map = buffer.map_readable().unwrap();
 
-    write_png(
-        output_path,
-        input_uri,
-        &file_info,
-        width,
-        height,
-        map.as_slice(),
-    );
+    std::fs::write(output_path, map.as_slice()).unwrap();
 }
 
-fn grab_frame(input_uri: &str, thumbnail_size: u16) -> (u32, u32, gst::Sample) {
+fn grab_frame(input_uri: &str, thumbnail_size: u16) -> gst::Sample {
     gst::init().unwrap();
 
     let pipeline = gst::Pipeline::new();
@@ -104,6 +84,7 @@ fn grab_frame(input_uri: &str, thumbnail_size: u16) -> (u32, u32, gst::Sample) {
     let videoscale = gst::ElementFactory::make("videoscale").build().unwrap();
     let videoconvert = gst::ElementFactory::make("videoconvert").build().unwrap();
     let capsfilter = gst::ElementFactory::make("capsfilter").build().unwrap();
+    let pngenc = gst::ElementFactory::make("pngenc").build().unwrap();
 
     // Sink
     let appsink = gst::ElementFactory::make("appsink").build().unwrap();
@@ -114,12 +95,13 @@ fn grab_frame(input_uri: &str, thumbnail_size: u16) -> (u32, u32, gst::Sample) {
             &videoscale,
             &videoconvert,
             &capsfilter,
+            &pngenc,
             &appsink,
         ])
         .unwrap();
 
     // Static links
-    gst::Element::link_many([&videoscale, &videoconvert, &capsfilter, &appsink]).unwrap();
+    gst::Element::link_many([&videoscale, &videoconvert, &capsfilter, &pngenc, &appsink]).unwrap();
 
     uridecodebin.connect_pad_added(move |_, src_pad| {
         let caps = src_pad.current_caps().unwrap();
@@ -147,7 +129,6 @@ fn grab_frame(input_uri: &str, thumbnail_size: u16) -> (u32, u32, gst::Sample) {
         let new_height = (height * scale).round() as i32;
 
         let caps = gst::Caps::builder("video/x-raw")
-            .field("format", "RGB")
             .field("width", new_width)
             .field("height", new_height)
             .build();
@@ -207,51 +188,5 @@ fn grab_frame(input_uri: &str, thumbnail_size: u16) -> (u32, u32, gst::Sample) {
     pipeline.set_state(gst::State::Playing).unwrap();
 
     // Pull one frame
-    let sample = appsink.pull_sample().unwrap();
-    let caps = sample.caps().unwrap();
-    let info = gst_video::VideoInfo::from_caps(caps).unwrap();
-    let width = info.width();
-    let height = info.height();
-
-    (width, height, sample)
-}
-
-fn write_png(
-    output_path: &OsStr,
-    input_uri: &str,
-    file_info: &gio::FileInfo,
-    thumbnail_width: u32,
-    thumbnail_height: u32,
-    buf: &[u8],
-) {
-    let out_file = std::fs::File::create(output_path).unwrap();
-    let buf_writer = std::io::BufWriter::new(out_file);
-
-    let mut encoder = png::Encoder::new(buf_writer, thumbnail_width, thumbnail_height);
-    encoder.set_color(png::ColorType::Rgb);
-
-    // <https://specifications.freedesktop.org/thumbnail-spec/latest/creation.html#addinfos>
-    encoder
-        .add_text_chunk(String::from("Thumb::URI"), input_uri.to_string())
-        .unwrap();
-    if let Some(mtime) = file_info.modification_date_time() {
-        encoder
-            .add_text_chunk(String::from("Thumb::MTime"), mtime.to_unix().to_string())
-            .unwrap();
-    } else {
-        glib::g_warning!("gstreamer-thumbnailer", "Could not read mtime.");
-    }
-    encoder
-        .add_text_chunk(String::from("Thumb::Size"), file_info.size().to_string())
-        .unwrap();
-    encoder
-        .add_text_chunk(
-            String::from("Software"),
-            format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
-        )
-        .unwrap();
-
-    let mut writer = encoder.write_header().unwrap();
-
-    writer.write_image_data(buf).unwrap();
+    appsink.pull_sample().unwrap()
 }
