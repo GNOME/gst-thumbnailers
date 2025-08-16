@@ -61,7 +61,7 @@ fn main() {
 }
 
 fn xx(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) {
-    let input_file = gio::File::for_uri(&input_uri);
+    let input_file = gio::File::for_uri(input_uri);
 
     let file_info = input_file
         .query_info(
@@ -96,7 +96,7 @@ fn grab_frame(input_uri: &str, thumbnail_size: u16) -> (u32, u32, gst::Sample) {
 
     // Source
     let uridecodebin = gst::ElementFactory::make("uridecodebin")
-        .property("uri", &input_uri)
+        .property("uri", input_uri)
         .build()
         .unwrap();
 
@@ -109,7 +109,7 @@ fn grab_frame(input_uri: &str, thumbnail_size: u16) -> (u32, u32, gst::Sample) {
     let appsink = gst::ElementFactory::make("appsink").build().unwrap();
 
     pipeline
-        .add_many(&[
+        .add_many([
             &uridecodebin,
             &videoscale,
             &videoconvert,
@@ -119,7 +119,7 @@ fn grab_frame(input_uri: &str, thumbnail_size: u16) -> (u32, u32, gst::Sample) {
         .unwrap();
 
     // Static links
-    gst::Element::link_many(&[&videoscale, &videoconvert, &capsfilter, &appsink]).unwrap();
+    gst::Element::link_many([&videoscale, &videoconvert, &capsfilter, &appsink]).unwrap();
 
     uridecodebin.connect_pad_added(move |_, src_pad| {
         let caps = src_pad.current_caps().unwrap();
@@ -147,14 +147,14 @@ fn grab_frame(input_uri: &str, thumbnail_size: u16) -> (u32, u32, gst::Sample) {
         let new_height = (height * scale).round() as i32;
 
         let caps = gst::Caps::builder("video/x-raw")
-            .field("format", &"RGB")
+            .field("format", "RGB")
             .field("width", new_width)
             .field("height", new_height)
             .build();
 
         capsfilter.set_property("caps", &caps);
 
-        // Link source pad to first filter
+        // Link source pad to sink of first filter
         let sink_pad = videoscale.static_pad("sink").unwrap();
         if !sink_pad.is_linked() {
             src_pad.link(&sink_pad).unwrap();
@@ -164,8 +164,8 @@ fn grab_frame(input_uri: &str, thumbnail_size: u16) -> (u32, u32, gst::Sample) {
     let appsink = appsink.dynamic_cast::<gst_app::AppSink>().unwrap();
 
     // Only keep one frame in buffer and drop the rest
-    appsink.set_property("max-buffers", &1u32);
-    appsink.set_property("drop", &true);
+    appsink.set_property("max-buffers", 1u32);
+    appsink.set_property("drop", true);
 
     // Get stream initialized
     pipeline.set_state(gst::State::Paused).unwrap();
@@ -209,9 +209,9 @@ fn grab_frame(input_uri: &str, thumbnail_size: u16) -> (u32, u32, gst::Sample) {
     // Pull one frame
     let sample = appsink.pull_sample().unwrap();
     let caps = sample.caps().unwrap();
-    let info = gst_video::VideoInfo::from_caps(&caps).unwrap();
-    let width = info.width() as u32;
-    let height = info.height() as u32;
+    let info = gst_video::VideoInfo::from_caps(caps).unwrap();
+    let width = info.width();
+    let height = info.height();
 
     (width, height, sample)
 }
@@ -225,7 +225,7 @@ fn write_png(
     buf: &[u8],
 ) {
     let out_file = std::fs::File::create(output_path).unwrap();
-    let ref mut buf_writer = std::io::BufWriter::new(out_file);
+    let buf_writer = std::io::BufWriter::new(out_file);
 
     let mut encoder = png::Encoder::new(buf_writer, thumbnail_width, thumbnail_height);
     encoder.set_color(png::ColorType::Rgb);
@@ -253,5 +253,5 @@ fn write_png(
 
     let mut writer = encoder.write_header().unwrap();
 
-    writer.write_image_data(&buf).unwrap();
+    writer.write_image_data(buf).unwrap();
 }
