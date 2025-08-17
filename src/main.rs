@@ -53,7 +53,7 @@ fn main() {
             return glib::ExitCode::from(2);
         };
 
-        xx(&input_uri, &output_path, thumbnail_size.try_into().unwrap());
+        create_thumbnail(&input_uri, &output_path, thumbnail_size.try_into().unwrap());
 
         glib::ExitCode::from(0)
     });
@@ -61,15 +61,15 @@ fn main() {
     app.run();
 }
 
-fn xx(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) {
-    let sample = grab_frame(input_uri, thumbnail_size);
+fn create_thumbnail(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) {
+    let sample = gst_get_pdf(input_uri, thumbnail_size);
     let buffer = sample.buffer().unwrap();
     let map = buffer.map_readable().unwrap();
 
     std::fs::write(output_path, map.as_slice()).unwrap();
 }
 
-fn grab_frame(input_uri: &str, thumbnail_size: u16) -> gst::Sample {
+fn gst_get_pdf(input_uri: &str, thumbnail_size: u16) -> gst::Sample {
     gst::init().unwrap();
 
     let pipeline = gst::Pipeline::new();
