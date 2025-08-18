@@ -3,10 +3,14 @@ use std::ffi::{OsStr, OsString};
 use gio::glib;
 use gio::prelude::*;
 use gst::prelude::*;
-use {gstreamer as gst, gstreamer_app as gst_app};
 
 fn main() {
-    let app = gio::Application::new(None, gio::ApplicationFlags::HANDLES_COMMAND_LINE);
+    gst::init().unwrap();
+
+    let app = gio::Application::new(
+        None,
+        gio::ApplicationFlags::HANDLES_COMMAND_LINE | gio::ApplicationFlags::NON_UNIQUE,
+    );
 
     app.add_main_option(
         "input",
@@ -53,26 +57,55 @@ fn main() {
             return glib::ExitCode::from(2);
         };
 
-        create_thumbnail(&input_uri, &output_path, thumbnail_size.try_into().unwrap());
+        let Ok(thumbnail_size) = u16::try_from(thumbnail_size) else {
+            eprintln!("Error: Size not supported.");
+            return glib::ExitCode::from(2);
+        };
 
-        glib::ExitCode::from(0)
+        match create_thumbnail(&input_uri, &output_path, thumbnail_size) {
+            Ok(_) => glib::ExitCode::SUCCESS,
+            Err(_) => glib::ExitCode::FAILURE,
+        }
     });
 
     app.run();
 }
 
-fn create_thumbnail(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) {
-    let sample = gst_get_pdf(input_uri, thumbnail_size);
+fn create_thumbnail(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) -> Result<(), ()> {
+    let sample = get_png_sample(input_uri, thumbnail_size)?;
+
     let buffer = sample.buffer().unwrap();
     let map = buffer.map_readable().unwrap();
 
-    std::fs::write(output_path, map.as_slice()).unwrap();
+    std::fs::write(output_path, map.as_slice()).map_err(|err| {
+        eprint!(
+            "Error: Failed writing file {}: {err}",
+            output_path.display()
+        );
+        ()
+    })?;
+
+    Ok(())
 }
 
-fn gst_get_pdf(input_uri: &str, thumbnail_size: u16) -> gst::Sample {
-    gst::init().unwrap();
+fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, ()> {
+    struct Pipeline(gst::Pipeline);
 
-    let pipeline = gst::Pipeline::new();
+    impl std::ops::Deref for Pipeline {
+        type Target = gst::Pipeline;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl Drop for Pipeline {
+        fn drop(&mut self) {
+            let _ = self.0.set_state(gst::State::Null);
+        }
+    }
+
+    let pipeline = Pipeline(gst::Pipeline::new());
 
     // Source
     let uridecodebin = gst::ElementFactory::make("uridecodebin")
@@ -84,10 +117,17 @@ fn gst_get_pdf(input_uri: &str, thumbnail_size: u16) -> gst::Sample {
     let videoscale = gst::ElementFactory::make("videoscale").build().unwrap();
     let videoconvert = gst::ElementFactory::make("videoconvert").build().unwrap();
     let capsfilter = gst::ElementFactory::make("capsfilter").build().unwrap();
-    let pngenc = gst::ElementFactory::make("pngenc").build().unwrap();
+    let pngenc = gst::ElementFactory::make("pngenc")
+        .property("snapshot", true)
+        .build()
+        .unwrap();
 
     // Sink
-    let appsink = gst::ElementFactory::make("appsink").build().unwrap();
+    let appsink = gst_app::AppSink::builder()
+        .sync(false)
+        // Only keep one frame in buffer and block on it
+        .max_buffers(1)
+        .build();
 
     pipeline
         .add_many([
@@ -96,12 +136,19 @@ fn gst_get_pdf(input_uri: &str, thumbnail_size: u16) -> gst::Sample {
             &videoconvert,
             &capsfilter,
             &pngenc,
-            &appsink,
+            appsink.upcast_ref(),
         ])
         .unwrap();
 
     // Static links
-    gst::Element::link_many([&videoscale, &videoconvert, &capsfilter, &pngenc, &appsink]).unwrap();
+    gst::Element::link_many([
+        &videoscale,
+        &videoconvert,
+        &capsfilter,
+        &pngenc,
+        appsink.upcast_ref(),
+    ])
+    .unwrap();
 
     uridecodebin.connect_pad_added(move |_, src_pad| {
         let caps = src_pad.current_caps().unwrap();
@@ -111,8 +158,14 @@ fn gst_get_pdf(input_uri: &str, thumbnail_size: u16) -> gst::Sample {
             return;
         }
 
-        let width = s.get::<i32>("width").unwrap() as f32;
+        let mut width = s.get::<i32>("width").unwrap() as f32;
         let height = s.get::<i32>("height").unwrap() as f32;
+        if let Some(par) = s
+            .get_optional::<gst::Fraction>("pixel-aspect-ratio")
+            .unwrap()
+        {
+            width *= par.numer() as f32 / par.denom() as f32;
+        }
 
         let thumbnail_size = thumbnail_size as f32;
 
@@ -131,9 +184,10 @@ fn gst_get_pdf(input_uri: &str, thumbnail_size: u16) -> gst::Sample {
         let caps = gst::Caps::builder("video/x-raw")
             .field("width", new_width)
             .field("height", new_height)
+            .field("pixel-aspect-ratio", gst::Fraction::new(1, 1))
             .build();
 
-        capsfilter.set_property("caps", &caps);
+        capsfilter.set_property("caps", caps);
 
         // Link source pad to sink of first filter
         let sink_pad = videoscale.static_pad("sink").unwrap();
@@ -142,20 +196,29 @@ fn gst_get_pdf(input_uri: &str, thumbnail_size: u16) -> gst::Sample {
         }
     });
 
-    let appsink = appsink.dynamic_cast::<gst_app::AppSink>().unwrap();
-
-    // Only keep one frame in buffer and drop the rest
-    appsink.set_property("max-buffers", 1u32);
-    appsink.set_property("drop", true);
-
     // Get stream initialized
-    pipeline.set_state(gst::State::Paused).unwrap();
+    match pipeline.set_state(gst::State::Paused) {
+        Ok(gst::StateChangeSuccess::NoPreroll) => {
+            eprintln!("Error: thumbnails of live streams make little sense");
+            return Err(());
+        }
+        Err(_) => {
+            eprintln!("Error: Failed setting pipeline to PAUSED");
+            return Err(());
+        }
+        _ => {}
+    }
 
     // Wait until stream is initialized
-    pipeline
-        .bus()
-        .unwrap()
-        .timed_pop_filtered(gst::ClockTime::NONE, &[gst::MessageType::AsyncDone]);
+    let msg = pipeline.bus().unwrap().timed_pop_filtered(
+        gst::ClockTime::NONE,
+        &[gst::MessageType::Error, gst::MessageType::AsyncDone],
+    );
+
+    if let Some(gst::MessageView::Error(err)) = msg.as_ref().map(|msg| msg.view()) {
+        eprintln!("Error: Failed pre-rolling pipeline: {}", err.error());
+        return Err(());
+    }
 
     // Determine position in video we want to take as thumbnail
     let seek_to_sec = if let Some(secs) = pipeline
@@ -171,22 +234,36 @@ fn gst_get_pdf(input_uri: &str, thumbnail_size: u16) -> gst::Sample {
         }
     } else {
         eprintln!("Failed to get video length.");
-        120
+        0
     };
 
     // Seek to calculated position
     //
     // Allow to fail in the hope that we still get a frame
-    if let Err(err) = pipeline.seek_simple(
-        gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-        gst::ClockTime::from_seconds(seek_to_sec),
-    ) {
-        eprintln!("Failed to seek to second {seek_to_sec}: {err}");
+    if pipeline
+        .seek_simple(
+            gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+            gst::ClockTime::from_seconds(seek_to_sec),
+        )
+        .is_err()
+    {
+        eprintln!("Failed to seek to second {seek_to_sec}");
     }
 
-    // Set to playing for appsink to return frames
-    pipeline.set_state(gst::State::Playing).unwrap();
+    // Wait until seek is finished
+    let msg = pipeline.bus().unwrap().timed_pop_filtered(
+        gst::ClockTime::NONE,
+        &[gst::MessageType::Error, gst::MessageType::AsyncDone],
+    );
+
+    if let Some(gst::MessageView::Error(err)) = msg.as_ref().map(|msg| msg.view()) {
+        eprintln!(
+            "Error: Failed pre-rolling pipeline after seek: {}",
+            err.error()
+        );
+        return Err(());
+    }
 
     // Pull one frame
-    appsink.pull_sample().unwrap()
+    appsink.pull_preroll().map_err(|_| ())
 }
