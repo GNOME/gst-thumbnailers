@@ -150,6 +150,8 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
     ])
     .unwrap();
 
+    disable_hardware_decoders();
+
     uridecodebin.connect_pad_added(move |_, src_pad| {
         let caps = src_pad.current_caps().unwrap();
         let s = caps.structure(0).unwrap();
@@ -266,4 +268,36 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
 
     // Pull one frame
     appsink.pull_preroll().map_err(|_| ())
+}
+
+fn filter_hw_decoders(feature: &gst::PluginFeature) -> bool {
+    let factory = match feature.downcast_ref::<gst::ElementFactory>() {
+        Some(f) => f,
+        None => return false,
+    };
+    let video_decoders_type =
+        gst::ElementFactoryType::MEDIA_VIDEO | gst::ElementFactoryType::DECODER;
+    unsafe {
+        // REVIEW: I wasn't able to find this in the bindings.
+        let mut result = gst_sys::gst_element_factory_list_is_type(
+            factory.as_ptr(),
+            video_decoders_type.bits(),
+        );
+        if result == 0 {
+            return false;
+        }
+        result = gst_sys::gst_element_factory_list_is_type(
+            factory.as_ptr(),
+            gst::ElementFactoryType::HARDWARE.bits(),
+        );
+        result != 0
+    }
+}
+
+fn disable_hardware_decoders() {
+    let registry = gst::Registry::get();
+    let hw_list = registry.features_filtered(filter_hw_decoders, false);
+    for l in hw_list.iter() {
+        registry.remove_feature(l);
+    }
 }
