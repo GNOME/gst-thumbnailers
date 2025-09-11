@@ -269,21 +269,9 @@ fn filter_hw_decoders(feature: &gst::PluginFeature) -> bool {
         Some(f) => f,
         None => return false,
     };
-    let video_decoders_type =
-        gst::ElementFactoryType::MEDIA_VIDEO | gst::ElementFactoryType::DECODER;
-    unsafe {
-        // REVIEW: I wasn't able to find this in the bindings.
-        let mut result =
-            gst_sys::gst_element_factory_list_is_type(factory.as_ptr(), video_decoders_type.bits());
-        if result == 0 {
-            return false;
-        }
-        result = gst_sys::gst_element_factory_list_is_type(
-            factory.as_ptr(),
-            gst::ElementFactoryType::HARDWARE.bits(),
-        );
-        result != 0
-    }
+    factory.has_type(gst::ElementFactoryType::MEDIA_VIDEO)
+        && factory.has_type(gst::ElementFactoryType::DECODER)
+        && factory.has_type(gst::ElementFactoryType::HARDWARE)
 }
 
 fn disable_hardware_decoders() {
