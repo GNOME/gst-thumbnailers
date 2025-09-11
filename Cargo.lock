@@ -209,6 +209,7 @@ dependencies = [
  "gio",
  "gstreamer",
  "gstreamer-app",
+ "gstreamer-sys",
 ]
 
 [[package]]
