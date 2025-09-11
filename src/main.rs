@@ -223,33 +223,27 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
     }
 
     // Determine position in video we want to take as thumbnail
-    let seek_to_sec = if let Some(secs) = pipeline
-        .query_duration::<gst::ClockTime>()
-        .map(|x| x.seconds())
-    {
-        if secs < 180 {
+    let seek_to = if let Some(duration) = pipeline.query_duration::<gst::ClockTime>() {
+        if duration < 180.seconds() {
             // Take frame after 1/3 of the video is over for short videos
-            secs / 3
+            duration / 3
         } else {
             // For longer videos take 2 minutes after which films should have started
-            120
+            120.seconds()
         }
     } else {
         eprintln!("Failed to get video length.");
-        0
+        gst::ClockTime::ZERO
     };
 
     // Seek to calculated position
     //
     // Allow to fail in the hope that we still get a frame
     if pipeline
-        .seek_simple(
-            gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-            gst::ClockTime::from_seconds(seek_to_sec),
-        )
+        .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, seek_to)
         .is_err()
     {
-        eprintln!("Failed to seek to second {seek_to_sec}");
+        eprintln!("Failed to seek to {seek_to}");
     }
 
     // Wait until seek is finished
@@ -279,10 +273,8 @@ fn filter_hw_decoders(feature: &gst::PluginFeature) -> bool {
         gst::ElementFactoryType::MEDIA_VIDEO | gst::ElementFactoryType::DECODER;
     unsafe {
         // REVIEW: I wasn't able to find this in the bindings.
-        let mut result = gst_sys::gst_element_factory_list_is_type(
-            factory.as_ptr(),
-            video_decoders_type.bits(),
-        );
+        let mut result =
+            gst_sys::gst_element_factory_list_is_type(factory.as_ptr(), video_decoders_type.bits());
         if result == 0 {
             return false;
         }
