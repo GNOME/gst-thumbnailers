@@ -14,6 +14,7 @@ else
 endif
 
 bindir = get_option('prefix') / get_option('bindir')
+datadir = get_option('prefix') / get_option('datadir')
 
 cargo_target_dir = meson.project_build_root() / 'cargo-target'
 cargo_home = meson.project_build_root() / 'cargo-home'
@@ -53,4 +54,16 @@ custom_target(
     cargo_target_dir / rust_target / 'gst-video-thumbnailer',
     '@OUTPUT@',
   ],
+)
+
+# Install .thumbnailer file
+conf = configuration_data()
+conf.set('BINDIR', bindir)
+
+configure_file(
+  input: 'gst-video.thumbnailer.in',
+  output: 'gst-video.thumbnailer',
+  configuration: conf,
+  install: true,
+  install_dir: datadir / 'thumbnailers',
 )
