@@ -1,0 +1,20 @@
+.install_dependencies:
+  before_script:
+    - apt-get update
+    - apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-good
+  interruptible: true
+
+test-x86_64:
+  image: rust:1.88-trixie
+  extends: .install_dependencies
+  interruptible: true
+  script:
+    - cargo test
+
+test-aarch64:
+  image: rust:1.88-trixie
+  extends: .install_dependencies
+  tags:
+    - aarch64
+  script:
+    - cargo test

@@ -68,7 +68,7 @@ pub fn main(args: &[impl AsRef<str>]) -> glib::ExitCode {
         }
     });
 
-    app.run_with_args(&args)
+    app.run_with_args(args)
 }
 
 fn create_thumbnail(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) -> Result<(), ()> {

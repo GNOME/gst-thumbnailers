@@ -2,6 +2,7 @@
 name = "gst-video-thumbnailer"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
 
 [dependencies]
 gio = { version = "0.21.1", features = ["v2_62"] }
