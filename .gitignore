@@ -1,3 +1,4 @@
 /target
 .vscode
 /install
+/tests/test-output.png

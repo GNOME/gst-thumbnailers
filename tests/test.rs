@@ -1,0 +1,47 @@
+use gio::prelude::*;
+
+#[test]
+fn test() {
+    for (path, var_ref) in [
+        ("1.webm", 0.),
+        ("2.webm", 2200.),
+        ("3.webm", 2200.),
+        ("long.webm", 1000.),
+    ] {
+        let data = run_thumbnailer(path);
+        let var = gst_video_thumbnailer::variance(&data);
+
+        assert!(
+            f32::abs(var - var_ref) < 200.,
+            "{path}: {var:.0} is not approx equal {var_ref}"
+        )
+    }
+}
+
+fn run_thumbnailer(video: &str) -> Vec<u8> {
+    assert_eq!(
+        gio::glib::ExitCode::new(0),
+        gst_video_thumbnailer::main(&[
+            "gst-video-thumbnailer",
+            "-i",
+            &gio::File::for_path(format!("tests/{video}")).uri(),
+            "-o",
+            "tests/test-output.png",
+            "-s",
+            "256"
+        ])
+    );
+
+    read_png("tests/test-output.png")
+}
+
+fn read_png(path: &str) -> Vec<u8> {
+    let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path).unwrap()));
+    let mut reader = decoder.read_info().unwrap();
+    let mut buf = vec![0; reader.output_buffer_size().unwrap()];
+
+    let info = reader.next_frame(&mut buf).unwrap();
+    buf.truncate(info.buffer_size());
+
+    buf.iter().flat_map(|x| x.to_ne_bytes()).collect()
+}
