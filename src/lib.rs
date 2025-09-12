@@ -78,22 +78,17 @@ pub fn main(args: &[impl AsRef<str>]) -> glib::ExitCode {
 }
 
 fn create_thumbnail(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) -> Result<(), ()> {
-    let sample = get_png_sample(input_uri, thumbnail_size)?;
+    let (width, height, sample) = get_png_sample(input_uri, thumbnail_size)?;
 
     let buffer = sample.buffer().unwrap();
     let map = buffer.map_readable().unwrap();
 
-    std::fs::write(output_path, map.as_slice()).map_err(|err| {
-        eprint!(
-            "Error: Failed writing file {}: {err}",
-            output_path.display()
-        );
-    })?;
+    write_png(output_path, width, height, map.as_slice());
 
     Ok(())
 }
 
-fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, ()> {
+fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u32, gst::Sample), ()> {
     struct Pipeline(gst::Pipeline);
 
     impl std::ops::Deref for Pipeline {
@@ -126,10 +121,6 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
         .property("video-direction", gst_video::VideoOrientationMethod::Auto)
         .build()
         .unwrap();
-    let pngenc = gst::ElementFactory::make("pngenc")
-        .property("snapshot", true)
-        .build()
-        .unwrap();
 
     // Sink
     let appsink = gst_app::AppSink::builder()
@@ -145,7 +136,6 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
             &videoconvert,
             &capsfilter,
             &videoflip,
-            &pngenc,
             appsink.upcast_ref(),
         ])
         .unwrap();
@@ -156,7 +146,6 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
         &videoconvert,
         &capsfilter,
         &videoflip,
-        &pngenc,
         appsink.upcast_ref(),
     ])
     .unwrap();
@@ -230,6 +219,7 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
         let new_height = (height * scale).round() as i32;
 
         let caps = gst::Caps::builder("video/x-raw")
+            .field("format", "RGB")
             .field("width", new_width)
             .field("height", new_height)
             .field("pixel-aspect-ratio", gst::Fraction::new(1, 1))
@@ -326,7 +316,13 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
     }
 
     // Pull one frame
-    appsink.pull_preroll().map_err(|_| ())
+    let sample = appsink.pull_preroll().unwrap();
+    let caps = sample.caps().unwrap();
+    let info = gst_video::VideoInfo::from_caps(caps).unwrap();
+    let width = info.width();
+    let height = info.height();
+
+    Ok((width, height, sample))
 }
 
 fn filter_hw_decoders(feature: &gst::PluginFeature) -> bool {
@@ -345,6 +341,18 @@ fn disable_hardware_decoders() {
     for l in hw_list.iter() {
         registry.remove_feature(l);
     }
+}
+
+fn write_png(output_path: &OsStr, thumbnail_width: u32, thumbnail_height: u32, buf: &[u8]) {
+    let out_file = std::fs::File::create(output_path).unwrap();
+    let buf_writer = std::io::BufWriter::new(out_file);
+
+    let mut encoder = png::Encoder::new(buf_writer, thumbnail_width, thumbnail_height);
+    encoder.set_color(png::ColorType::Rgb);
+
+    let mut writer = encoder.write_header().unwrap();
+
+    writer.write_image_data(buf).unwrap();
 }
 
 pub fn variance(xs: &[u8]) -> f32 {
