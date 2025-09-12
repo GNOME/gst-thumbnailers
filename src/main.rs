@@ -82,7 +82,6 @@ fn create_thumbnail(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) -
             "Error: Failed writing file {}: {err}",
             output_path.display()
         );
-        ()
     })?;
 
     Ok(())
