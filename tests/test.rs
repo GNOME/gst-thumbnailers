@@ -3,7 +3,7 @@ use gio::prelude::*;
 #[test]
 fn test() {
     for (path, var_ref) in [
-        ("1.webm", 0.),
+        ("1.webm", 2200.),
         ("2.webm", 2200.),
         ("3.webm", 2200.),
         ("long.webm", 1000.),

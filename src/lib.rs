@@ -277,46 +277,72 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u32, gst
         "gst_video_thumbnailer_paused",
     );
 
-    // Determine position in video we want to take as thumbnail
-    let seek_to = if let Some(duration) = pipeline.query_duration::<gst::ClockTime>() {
-        if duration < 180.seconds() {
-            // Take frame after 1/3 of the video is over for short videos
-            duration / 3
-        } else {
-            // For longer videos take 2 minutes after which films should have started
-            120.seconds()
-        }
+    let duration = if let Some(duration) = pipeline.query_duration::<gst::ClockTime>() {
+        duration
     } else {
         eprintln!("Failed to get video length.");
         gst::ClockTime::ZERO
     };
 
-    // Seek to calculated position
-    //
-    // Allow to fail in the hope that we still get a frame
-    if pipeline
-        .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, seek_to)
-        .is_err()
-    {
-        eprintln!("Failed to seek to {seek_to}");
-    }
+    // Determine position in video we want to take as thumbnail
+    let seek_at = if duration > 180.seconds() {
+        // For long videos, take frames at 1/15, 1/15, 2/15, 3/15, 4/15, 5/15 of the
+        // video This only uses the first third of the video to not spoiler
+        // films
+        [15 / 1, 15 / 2, 15 / 3, 15 / 4, 15 / 5]
+    } else {
+        // For short videos, sample from the complete video
+        [10 / 1, 10 / 2, 10 / 3, 10 / 6, 10 / 9]
+    };
 
-    // Wait until seek is finished
-    let msg = pipeline.bus().unwrap().timed_pop_filtered(
-        gst::ClockTime::NONE,
-        &[gst::MessageType::Error, gst::MessageType::AsyncDone],
-    );
+    let mut samples = vec![appsink.pull_preroll().unwrap()];
 
-    if let Some(gst::MessageView::Error(err)) = msg.as_ref().map(|msg| msg.view()) {
-        eprintln!(
-            "Error: Failed pre-rolling pipeline after seek: {}",
-            err.error()
+    // Pull frames at seek positions
+    for divide_by in seek_at {
+        let seek_to = duration / divide_by;
+
+        // Seek to calculated position
+        //
+        // Allow to fail in the hope that we still get a frame
+        if pipeline
+            .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, seek_to)
+            .is_err()
+        {
+            eprintln!("Failed to seek to {seek_to}");
+        }
+
+        // Wait until seek is finished
+        let msg = pipeline.bus().unwrap().timed_pop_filtered(
+            gst::ClockTime::NONE,
+            &[gst::MessageType::Error, gst::MessageType::AsyncDone],
         );
-        return Err(());
+
+        if let Some(gst::MessageView::Error(err)) = msg.as_ref().map(|msg| msg.view()) {
+            eprintln!(
+                "Error: Failed pre-rolling pipeline after seek: {}",
+                err.error()
+            );
+            return Err(());
+        }
+
+        samples.push(appsink.pull_preroll().unwrap());
     }
 
-    // Pull one frame
-    let sample = appsink.pull_preroll().unwrap();
+    let mut sorted_samples = samples
+        .into_iter()
+        .filter_map(|x| {
+            let data = x.buffer()?.map_readable().ok()?;
+            let var = variance(data.as_slice());
+            drop(data);
+            Some((x, var))
+        })
+        .collect::<Vec<_>>();
+
+    // Sort samples to have highest variance first
+    sorted_samples.sort_by(|(_, var1), (_, var2)| var2.partial_cmp(var1).unwrap());
+
+    // Use sample with highest variance
+    let (sample, _) = sorted_samples.remove(0);
     let caps = sample.caps().unwrap();
     let info = gst_video::VideoInfo::from_caps(caps).unwrap();
     let width = info.width();
