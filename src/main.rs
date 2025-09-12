@@ -205,6 +205,20 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
         }
         Err(_) => {
             eprintln!("Error: Failed setting pipeline to PAUSED");
+            if let Some(msg) = pipeline
+                .bus()
+                .unwrap()
+                .pop_filtered(&[gst::MessageType::Error])
+            {
+                let gst::MessageView::Error(msg) = msg.view() else {
+                    unreachable!();
+                };
+
+                eprintln!("\t{}", msg.error());
+                if let Some(debug) = msg.debug() {
+                    eprintln!("\t{debug}");
+                }
+            }
             return Err(());
         }
         _ => {}
