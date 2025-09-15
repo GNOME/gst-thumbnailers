@@ -116,6 +116,10 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
     let videoscale = gst::ElementFactory::make("videoscale").build().unwrap();
     let videoconvert = gst::ElementFactory::make("videoconvert").build().unwrap();
     let capsfilter = gst::ElementFactory::make("capsfilter").build().unwrap();
+    let videoflip = gst::ElementFactory::make("videoflip")
+        .property("video-direction", gst_video::VideoOrientationMethod::Auto)
+        .build()
+        .unwrap();
     let pngenc = gst::ElementFactory::make("pngenc")
         .property("snapshot", true)
         .build()
@@ -134,6 +138,7 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
             &videoscale,
             &videoconvert,
             &capsfilter,
+            &videoflip,
             &pngenc,
             appsink.upcast_ref(),
         ])
@@ -144,6 +149,7 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
         &videoscale,
         &videoconvert,
         &capsfilter,
+        &videoflip,
         &pngenc,
         appsink.upcast_ref(),
     ])
