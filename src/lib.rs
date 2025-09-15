@@ -158,6 +158,43 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
     // Disable hardware decoders
     uridecodebin.set_property("force-sw-decoders", true);
 
+    // Manually set number of worker threads for decoders in order to reduce memory
+    // usage on setups with many cores, see
+    // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/4423
+    uridecodebin.connect_closure(
+        "deep-element-added",
+        false,
+        glib::closure!(
+            |_uridecodebin: &gst::Element, _bin: &gst::Bin, element: &gst::Element| {
+                // WARNING!
+                // Be careful adding support for new elements in the future here. Make sure
+                // your tests have covered newly added code, since it's easy to use an incorrect
+                // type for the "number of threads" property. Some elements use an unsigned
+                // integer, others a signed integer. Mixing them up will result
+                // in a runtime crash with no compiler warning.
+                if element
+                    .factory()
+                    .is_some_and(|factory| factory.name().starts_with("avdec_"))
+                {
+                    let gobject_class = element.class();
+                    if gobject_class.find_property("max-threads").is_some() {
+                        element.set_property("max-threads", 1i32);
+                    }
+                } else if element
+                    .factory()
+                    .is_some_and(|factory| factory.name() == "dav1ddec")
+                {
+                    element.set_property("n-threads", 1u32);
+                } else if element
+                    .factory()
+                    .is_some_and(|factory| ["vp8dec", "vp9dec"].contains(&factory.name().as_str()))
+                {
+                    element.set_property("threads", 1u32);
+                }
+            }
+        ),
+    );
+
     uridecodebin.connect_pad_added(move |_, src_pad| {
         let caps = src_pad.current_caps().unwrap();
         let s = caps.structure(0).unwrap();
