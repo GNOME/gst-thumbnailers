@@ -236,6 +236,11 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
         return Err(());
     }
 
+    pipeline.debug_to_dot_file_with_ts(
+        gst::DebugGraphDetails::all(),
+        "gst_video_thumbnailer_paused",
+    );
+
     // Determine position in video we want to take as thumbnail
     let seek_to = if let Some(duration) = pipeline.query_duration::<gst::ClockTime>() {
         if duration < 180.seconds() {
