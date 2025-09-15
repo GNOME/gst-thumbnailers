@@ -149,7 +149,8 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
     ])
     .unwrap();
 
-    disable_hardware_decoders();
+    // Disable hardware decoders
+    uridecodebin.set_property("force-sw-decoders", true);
 
     uridecodebin.connect_pad_added(move |_, src_pad| {
         let caps = src_pad.current_caps().unwrap();
@@ -275,24 +276,6 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
 
     // Pull one frame
     appsink.pull_preroll().map_err(|_| ())
-}
-
-fn filter_hw_decoders(feature: &gst::PluginFeature) -> bool {
-    let factory = match feature.downcast_ref::<gst::ElementFactory>() {
-        Some(f) => f,
-        None => return false,
-    };
-    factory.has_type(gst::ElementFactoryType::MEDIA_VIDEO)
-        && factory.has_type(gst::ElementFactoryType::DECODER)
-        && factory.has_type(gst::ElementFactoryType::HARDWARE)
-}
-
-fn disable_hardware_decoders() {
-    let registry = gst::Registry::get();
-    let hw_list = registry.features_filtered(filter_hw_decoders, false);
-    for l in hw_list.iter() {
-        registry.remove_feature(l);
-    }
 }
 
 pub fn variance(xs: &[u8]) -> f32 {
