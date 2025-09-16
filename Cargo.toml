@@ -6,7 +6,7 @@ rust-version = "1.88"
 
 [dependencies]
 gio = { version = "0.21.1", features = ["v2_62"] }
-gst = { package = "gstreamer", version = "0.24.1", features = ["v1_26"] }
+gst = { package = "gstreamer", version = "0.24.1" }
 gst-app = { package = "gstreamer-app", version = "0.24.0" }
 gst-sys = { package = "gstreamer-sys", version = "0.24.0" }
 gst-video = { package = "gstreamer-video", version = "0.24.0" }
