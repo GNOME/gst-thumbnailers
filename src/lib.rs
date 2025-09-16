@@ -7,6 +7,10 @@ use gst::prelude::*;
 pub fn main(args: &[impl AsRef<str>]) -> glib::ExitCode {
     gst::init().unwrap();
 
+    // This could be solved in a cleaner way when GStreamer adds support for
+    // sorting decoder factories in uridecodebin3.
+    // See: https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/959
+    // and  https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/9672
     disable_hardware_decoders();
 
     let app = gio::Application::new(
@@ -109,7 +113,7 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
     let pipeline = Pipeline(gst::Pipeline::new());
 
     // Source
-    let uridecodebin = gst::ElementFactory::make("uridecodebin")
+    let uridecodebin = gst::ElementFactory::make("uridecodebin3")
         .property("uri", input_uri)
         .build()
         .unwrap();
@@ -195,12 +199,12 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<gst::Sample, (
     );
 
     uridecodebin.connect_pad_added(move |_, src_pad| {
-        let caps = src_pad.current_caps().unwrap();
-        let s = caps.structure(0).unwrap();
-
-        if !s.name().starts_with("video/") {
+        let stream = src_pad.stream().unwrap();
+        if stream.stream_type() != gst::StreamType::VIDEO {
             return;
         }
+        let caps = stream.caps().unwrap();
+        let s = caps.structure(0).unwrap();
 
         let mut width = s.get::<i32>("width").unwrap() as f32;
         let height = s.get::<i32>("height").unwrap() as f32;
