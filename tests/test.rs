@@ -7,6 +7,7 @@ fn test() {
         ("2.webm", 2200.),
         ("3.webm", 2200.),
         ("long.webm", 1000.),
+        ("uneven.webm", 2200.),
     ] {
         let data = run_thumbnailer(path);
         let var = gst_video_thumbnailer::variance(&data);

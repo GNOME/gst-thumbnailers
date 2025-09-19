@@ -78,17 +78,14 @@ pub fn main(args: &[impl AsRef<str>]) -> glib::ExitCode {
 }
 
 fn create_thumbnail(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) -> Result<(), ()> {
-    let (width, height, sample) = get_png_sample(input_uri, thumbnail_size)?;
+    let (width, height, frame) = get_interesting_frame(input_uri, thumbnail_size)?;
 
-    let buffer = sample.buffer().unwrap();
-    let map = buffer.map_readable().unwrap();
-
-    write_png(output_path, width, height, map.as_slice());
+    write_png(output_path, width, height, frame.as_slice());
 
     Ok(())
 }
 
-fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u32, gst::Sample), ()> {
+fn get_interesting_frame(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u32, Vec<u8>), ()> {
     struct Pipeline(gst::Pipeline);
 
     impl std::ops::Deref for Pipeline {
@@ -347,8 +344,20 @@ fn get_png_sample(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u32, gst
     let info = gst_video::VideoInfo::from_caps(caps).unwrap();
     let width = info.width();
     let height = info.height();
+    let stride = info.comp_stride(0) as usize;
 
-    Ok((width, height, sample))
+    let new_stride = width as usize * 3;
+    let sample_map = sample.buffer().unwrap().map_readable().unwrap();
+
+    let mut buf = Vec::with_capacity(height as usize * new_stride);
+    for x in 0..height as usize {
+        let p0 = x * stride;
+        let p1 = p0 + new_stride;
+
+        buf.extend_from_slice(&sample_map[p0..p1]);
+    }
+
+    Ok((width, height, buf))
 }
 
 fn filter_hw_decoders(feature: &gst::PluginFeature) -> bool {
