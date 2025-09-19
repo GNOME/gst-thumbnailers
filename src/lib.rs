@@ -325,7 +325,7 @@ fn get_interesting_frame(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u
         samples.push(appsink.pull_preroll().unwrap());
     }
 
-    let mut sorted_samples = samples
+    let samples_with_variance = samples
         .into_iter()
         .filter_map(|x| {
             let data = x.buffer()?.map_readable().ok()?;
@@ -335,11 +335,11 @@ fn get_interesting_frame(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u
         })
         .collect::<Vec<_>>();
 
-    // Sort samples to have highest variance first
-    sorted_samples.sort_by(|(_, var1), (_, var2)| var2.partial_cmp(var1).unwrap());
-
     // Use sample with highest variance
-    let (sample, _) = sorted_samples.remove(0);
+    let (sample, _) = samples_with_variance
+        .iter()
+        .max_by(|(_, var1), (_, var2)| var1.partial_cmp(var2).unwrap())
+        .unwrap();
     let caps = sample.caps().unwrap();
     let info = gst_video::VideoInfo::from_caps(caps).unwrap();
     let width = info.width();
