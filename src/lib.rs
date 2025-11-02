@@ -344,7 +344,7 @@ fn get_interesting_frame(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u
     let info = gst_video::VideoInfo::from_caps(caps).unwrap();
     let width = info.width();
     let height = info.height();
-    let stride = info.comp_stride(0) as usize;
+    let stride = info.stride()[0] as usize;
 
     let new_stride = width as usize * 3;
     let sample_map = sample.buffer().unwrap().map_readable().unwrap();
