@@ -283,20 +283,20 @@ fn get_interesting_frame(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u
 
     // Determine position in video we want to take as thumbnail
     let seek_at = if duration > 180.seconds() {
-        // For long videos, take frames at 1/15, 1/15, 2/15, 3/15, 4/15, 5/15 of the
+        // For long videos, take frames at 10%, 15%, 20%, 25%, 30% of the
         // video This only uses the first third of the video to not spoiler
         // films
-        [15 / 1, 15 / 2, 15 / 3, 15 / 4, 15 / 5]
+        [10, 15, 20, 25, 30]
     } else {
         // For short videos, sample from the complete video
-        [10 / 1, 10 / 2, 10 / 3, 10 / 6, 10 / 9]
+        [10, 20, 30, 60, 90]
     };
 
     let mut samples = vec![appsink.pull_preroll().unwrap()];
 
     // Pull frames at seek positions
-    for divide_by in seek_at {
-        let seek_to = duration / divide_by;
+    for percentage in seek_at {
+        let seek_to = duration.mul_div_ceil(percentage, 100).unwrap();
 
         // Seek to calculated position
         //
