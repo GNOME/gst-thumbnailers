@@ -349,12 +349,13 @@ fn get_interesting_frame(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u
     let new_stride = width as usize * 3;
     let sample_map = sample.buffer().unwrap().map_readable().unwrap();
 
-    let mut buf = Vec::with_capacity(height as usize * new_stride);
-    for x in 0..height as usize {
-        let p0 = x * stride;
-        let p1 = p0 + new_stride;
-
-        buf.extend_from_slice(&sample_map[p0..p1]);
+    // Get rid of padding after stride
+    let mut buf = vec![0; height as usize * new_stride];
+    for (out_line, in_line) in Iterator::zip(
+        buf.chunks_exact_mut(new_stride),
+        sample_map.chunks_exact(stride),
+    ) {
+        out_line.copy_from_slice(&in_line[0..new_stride]);
     }
 
     Ok((width, height, buf))

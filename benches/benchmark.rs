@@ -1,7 +1,7 @@
-use gio::prelude::*;
 use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
+use gio::prelude::*;
 
 pub const TEST_VIDEOS: &[(&str, &str)] = &[
     (
