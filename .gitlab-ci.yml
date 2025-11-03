@@ -18,3 +18,20 @@ test-aarch64:
     - aarch64
   script:
     - cargo test
+
+cargo-clippy:
+  image: rust:1.91-trixie
+  extends: .install_dependencies
+  interruptible: true
+  allow_failure: true
+  script:
+    - cargo clippy
+
+cargo-deny:
+  image: rust:1.91-trixie
+  extends: .install_dependencies
+  interruptible: true
+  allow_failure: true
+  script:
+    - cargo install --fixed cargo-deny
+    - cargo deny check

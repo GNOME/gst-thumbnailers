@@ -1,0 +1,9 @@
+[output]
+feature-depth = 1
+
+[advisories]
+ignore = []
+
+
+[licenses]
+allow = ["MIT", "Apache-2.0 WITH LLVM-exception", "Unicode-3.0", "GPL-3.0-only"]
