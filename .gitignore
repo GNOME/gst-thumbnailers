@@ -2,3 +2,5 @@
 .vscode
 /install
 /tests/test-output.png
+/benches/tearsofsteel_4k.mov
+/benches/tears_of_steel_720p.mov
