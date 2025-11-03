@@ -1,8 +1,10 @@
 use std::ffi::{OsStr, OsString};
+use std::io::Cursor;
 
 use gio::glib;
 use gio::prelude::*;
 use gst::prelude::*;
+use image::ImageReader;
 
 pub fn main(args: &[impl AsRef<str>]) -> glib::ExitCode {
     gst::init().unwrap();
@@ -77,15 +79,50 @@ pub fn main(args: &[impl AsRef<str>]) -> glib::ExitCode {
     app.run_with_args(args)
 }
 
-fn create_thumbnail(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) -> Result<(), ()> {
-    let (width, height, frame) = get_interesting_frame(input_uri, thumbnail_size)?;
-
-    write_png(output_path, width, height, frame.as_slice());
-
-    Ok(())
+#[derive(Debug)]
+pub enum ThumbnailSource {
+    VideoFrame(u32, u32, Vec<u8>),
+    CoverArt(gst::Sample),
 }
 
-fn get_interesting_frame(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u32, Vec<u8>), ()> {
+fn create_thumbnail(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) -> Result<(), ()> {
+    match thumbnail_sample(input_uri, thumbnail_size)? {
+        ThumbnailSource::VideoFrame(width, height, frame) => {
+            write_png(output_path, width, height, frame.as_slice());
+            Ok(())
+        }
+        ThumbnailSource::CoverArt(sample) => {
+            let buffer = sample.buffer().ok_or(())?;
+            let map = buffer.map_readable().map_err(|_| ())?;
+            let decoded_img = ImageReader::new(Cursor::new(map.as_slice()))
+                .with_guessed_format()
+                .map_err(|err| {
+                    eprintln!("Failed to guess image format: {err}");
+                })?
+                .decode()
+                .map_err(|err| {
+                    eprintln!("Failed to decode image: {err}");
+                })?;
+            let (new_width, new_height) = scale_thumbnail_dimensions(
+                decoded_img.width() as f32,
+                decoded_img.height() as f32,
+                thumbnail_size,
+            );
+            decoded_img
+                .resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
+                .save(output_path)
+                .map_err(|err| {
+                    eprintln!(
+                        "Error: Failed writing file {}: {err}",
+                        output_path.display()
+                    );
+                })?;
+            Ok(())
+        }
+    }
+}
+
+fn thumbnail_sample(input_uri: &str, thumbnail_size: u16) -> Result<ThumbnailSource, ()> {
     struct Pipeline(gst::Pipeline);
 
     impl std::ops::Deref for Pipeline {
@@ -201,24 +238,12 @@ fn get_interesting_frame(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u
             width *= par.numer() as f32 / par.denom() as f32;
         }
 
-        let thumbnail_size = thumbnail_size as f32;
-
-        let scale = if width < thumbnail_size && height < thumbnail_size {
-            // avoid upscaling
-            1.
-        } else if width > height {
-            thumbnail_size / width
-        } else {
-            thumbnail_size / height
-        };
-
-        let new_width = (width * scale).round() as i32;
-        let new_height = (height * scale).round() as i32;
+        let (new_width, new_height) = scale_thumbnail_dimensions(width, height, thumbnail_size);
 
         let caps = gst::Caps::builder("video/x-raw")
             .field("format", "RGB")
-            .field("width", new_width)
-            .field("height", new_height)
+            .field("width", new_width as i32)
+            .field("height", new_height as i32)
             .field("pixel-aspect-ratio", gst::Fraction::new(1, 1))
             .build();
 
@@ -259,14 +284,46 @@ fn get_interesting_frame(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u
     }
 
     // Wait until stream is initialized
-    let msg = pipeline.bus().unwrap().timed_pop_filtered(
-        gst::ClockTime::NONE,
-        &[gst::MessageType::Error, gst::MessageType::AsyncDone],
-    );
+    while let Some(message) = pipeline.bus().unwrap().timed_pop(gst::ClockTime::NONE) {
+        match message.view() {
+            gst::MessageView::AsyncDone(_) => break,
+            gst::MessageView::Error(err) => {
+                eprintln!("Error: Failed pre-rolling pipeline: {}", err.error());
+                return Err(());
+            }
+            gst::MessageView::Tag(tag) => {
+                // Check for any cover art.
+                let tags = tag.tags();
+                let mut cover_sample = None;
+                for sample_value in tags.iter_tag::<gst::tags::Image>() {
+                    let sample = sample_value.get();
+                    let Some(caps) = sample.caps() else { continue };
 
-    if let Some(gst::MessageView::Error(err)) = msg.as_ref().map(|msg| msg.view()) {
-        eprintln!("Error: Failed pre-rolling pipeline: {}", err.error());
-        return Err(());
+                    let image_type = caps
+                        .structure(0)
+                        .and_then(|s| s.get::<i32>("image-type").ok());
+
+                    // TODO: Use gst_tag::TagImageType when it's properly exported
+                    // Hardcoding values: 0 = None, 1 = Undefined, 3 = FrontCover
+                    // See: https://gitlab.gnome.org/sophie-h/gst-video-thumbnailer/-/issues/4
+                    match image_type {
+                        Some(3) => {
+                            // Front cover found - use it immediately
+                            return Ok(ThumbnailSource::CoverArt(sample));
+                        }
+                        Some(1) | None if cover_sample.is_none() => {
+                            // Save as fallback
+                            cover_sample = Some(sample);
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(sample) = cover_sample {
+                    return Ok(ThumbnailSource::CoverArt(sample));
+                }
+            }
+            _ => {}
+        }
     }
 
     pipeline.debug_to_dot_file_with_ts(
@@ -358,7 +415,23 @@ fn get_interesting_frame(input_uri: &str, thumbnail_size: u16) -> Result<(u32, u
         out_line.copy_from_slice(&in_line[0..new_stride]);
     }
 
-    Ok((width, height, buf))
+    Ok(ThumbnailSource::VideoFrame(width, height, buf))
+}
+
+fn scale_thumbnail_dimensions(width: f32, height: f32, thumbnail_size: u16) -> (u32, u32) {
+    let thumbnail_size = thumbnail_size as f32;
+    let scale = if width < thumbnail_size && height < thumbnail_size {
+        // avoid upscaling
+        1.0
+    } else if width > height {
+        thumbnail_size / width
+    } else {
+        thumbnail_size / height
+    };
+    let new_width = (width * scale).round() as u32;
+    let new_height = (height * scale).round() as u32;
+
+    (new_width, new_height)
 }
 
 fn filter_hw_decoders(feature: &gst::PluginFeature) -> bool {

@@ -7,10 +7,12 @@ license = "GPL-3.0-only"
 
 [dependencies]
 gio = { version = "0.21.1", features = ["v2_62"] }
-gst = { package = "gstreamer", version = "0.24.1" }
+gst = { package = "gstreamer", version = "0.24.3" }
 gst-app = { package = "gstreamer-app", version = "0.24.0" }
 gst-sys = { package = "gstreamer-sys", version = "0.24.0" }
-gst-video = { package = "gstreamer-video", version = "0.24.0" }
+gst-video = { package = "gstreamer-video", version = "0.24.3" }
+gst-tag = { package = "gstreamer-tag", version = "0.24.3" }
+image = "0.25.8"
 png = "0.18.0"
 
 [dev-dependencies]
