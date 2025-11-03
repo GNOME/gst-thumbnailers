@@ -20,18 +20,28 @@ test-aarch64:
     - cargo test
 
 cargo-clippy:
-  image: rust:1.91-trixie
+  image: rust
   extends: .install_dependencies
   interruptible: true
   allow_failure: true
   script:
+    - rustup component add clippy
     - cargo clippy
 
 cargo-deny:
-  image: rust:1.91-trixie
+  image: rust
   extends: .install_dependencies
   interruptible: true
   allow_failure: true
   script:
-    - cargo install --fixed cargo-deny
+    - cargo install --locked cargo-deny
     - cargo deny check
+
+cargo-fmt:
+  image: rust
+  extends: .install_dependencies
+  interruptible: true
+  allow_failure: true
+  script:
+    - rustup component add rustfmt
+    - cargo fmt --check
