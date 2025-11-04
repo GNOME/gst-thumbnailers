@@ -1,7 +1,6 @@
 use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use gio::prelude::*;
 
 pub const TEST_VIDEOS: &[(&str, &str)] = &[
     (
@@ -49,8 +48,8 @@ fn run_thumbnailer(video: &str) {
         gio::glib::ExitCode::new(0),
         gst_video_thumbnailer::main(&[
             "gst-video-thumbnailer",
-            "-i",
-            &gio::File::for_path(video).uri(),
+            "-p",
+            video,
             "-o",
             "/dev/null",
             "-s",

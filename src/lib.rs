@@ -1,12 +1,20 @@
-use std::ffi::{OsStr, OsString};
+mod cli;
+
+use clap::Parser;
+use std::ffi::OsString;
 use std::io::Cursor;
+use std::path::Path;
 
 use gio::glib;
 use gio::prelude::*;
 use gst::prelude::*;
 use image::ImageReader;
 
-pub fn main(args: &[impl AsRef<str>]) -> glib::ExitCode {
+pub fn main<I, T>(args: I) -> glib::ExitCode
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
     gst::init().unwrap();
 
     // This could be solved in a cleaner way when GStreamer adds support for
@@ -15,68 +23,12 @@ pub fn main(args: &[impl AsRef<str>]) -> glib::ExitCode {
     // and  https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/9672
     disable_hardware_decoders();
 
-    let app = gio::Application::new(
-        None,
-        gio::ApplicationFlags::HANDLES_COMMAND_LINE | gio::ApplicationFlags::NON_UNIQUE,
-    );
+    let args = cli::Args::parse_from(args);
 
-    app.add_main_option(
-        "input",
-        glib::Char::from(b'i'),
-        glib::OptionFlags::NONE,
-        glib::OptionArg::String,
-        "Input URL",
-        Some("INPUT_URL"),
-    );
-
-    app.add_main_option(
-        "output",
-        glib::Char::from(b'o'),
-        glib::OptionFlags::NONE,
-        glib::OptionArg::Filename,
-        "Output path",
-        Some("OUTPUT_PATH"),
-    );
-
-    app.add_main_option(
-        "size",
-        glib::Char::from(b's'),
-        glib::OptionFlags::NONE,
-        glib::OptionArg::Int,
-        "Maximum thumbnail size",
-        Some("SIZE"),
-    );
-
-    app.connect_command_line(move |_, args: &gio::ApplicationCommandLine| {
-        let args_dict = args.options_dict();
-
-        let Some(input_uri) = args_dict.lookup::<String>("input").unwrap() else {
-            eprintln!("Error: Input URI not supplied.");
-            return glib::ExitCode::from(2);
-        };
-
-        let Some(output_path) = args_dict.lookup::<OsString>("output").unwrap() else {
-            eprintln!("Error: Output path not supplied.");
-            return glib::ExitCode::from(2);
-        };
-
-        let Some(thumbnail_size) = args_dict.lookup::<i32>("size").unwrap() else {
-            eprintln!("Error: Size not supplied.");
-            return glib::ExitCode::from(2);
-        };
-
-        let Ok(thumbnail_size) = u16::try_from(thumbnail_size) else {
-            eprintln!("Error: Size not supported.");
-            return glib::ExitCode::from(2);
-        };
-
-        match create_thumbnail(&input_uri, &output_path, thumbnail_size) {
-            Ok(_) => glib::ExitCode::SUCCESS,
-            Err(_) => glib::ExitCode::FAILURE,
-        }
-    });
-
-    app.run_with_args(args)
+    match create_thumbnail(&args.source.uri(), &args.output, args.size) {
+        Ok(_) => glib::ExitCode::SUCCESS,
+        Err(_) => glib::ExitCode::FAILURE,
+    }
 }
 
 #[derive(Debug)]
@@ -85,7 +37,7 @@ pub enum ThumbnailSource {
     CoverArt(gst::Sample),
 }
 
-fn create_thumbnail(input_uri: &str, output_path: &OsStr, thumbnail_size: u16) -> Result<(), ()> {
+fn create_thumbnail(input_uri: &str, output_path: &Path, thumbnail_size: u16) -> Result<(), ()> {
     match thumbnail_sample(input_uri, thumbnail_size)? {
         ThumbnailSource::VideoFrame(width, height, frame) => {
             write_png(output_path, width, height, frame.as_slice());
@@ -452,7 +404,7 @@ fn disable_hardware_decoders() {
     }
 }
 
-fn write_png(output_path: &OsStr, thumbnail_width: u32, thumbnail_height: u32, buf: &[u8]) {
+fn write_png(output_path: &Path, thumbnail_width: u32, thumbnail_height: u32, buf: &[u8]) {
     let out_file = std::fs::File::create(output_path).unwrap();
     let buf_writer = std::io::BufWriter::new(out_file);
 

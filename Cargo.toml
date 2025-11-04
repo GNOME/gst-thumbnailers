@@ -14,6 +14,12 @@ gst-video = { package = "gstreamer-video", version = "0.24.3" }
 gst-tag = { package = "gstreamer-tag", version = "0.24.3" }
 image = "0.25.8"
 png = "0.18.0"
+clap = { version = "4.5.51", default-features = false, features = [
+    "derive",
+    "std",
+    "help",
+    "usage",
+] }
 
 [dev-dependencies]
 criterion = "0.7"
