@@ -8,6 +8,8 @@ fn test() {
         ("3.webm", 2200.),
         ("long.webm", 1000.),
         ("uneven.webm", 2200.),
+        // Should use embedded cover image instead of frame
+        ("1-cover.mkv", 5118.),
     ] {
         let data = run_thumbnailer(path);
         let var = gst_video_thumbnailer::variance(&data);
