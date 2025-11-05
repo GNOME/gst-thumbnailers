@@ -166,30 +166,30 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
         false,
         glib::closure!(
             |_uridecodebin: &gst::Element, _bin: &gst::Bin, element: &gst::Element| {
-                // WARNING!
-                // Be careful adding support for new elements in the future here. Make sure
-                // your tests have covered newly added code, since it's easy to use an incorrect
-                // type for the "number of threads" property. Some elements use an unsigned
-                // integer, others a signed integer. Mixing them up will result
-                // in a runtime crash with no compiler warning.
-                if element
-                    .factory()
-                    .is_some_and(|factory| factory.name().starts_with("avdec_"))
-                {
-                    let gobject_class = element.class();
-                    if gobject_class.find_property("max-threads").is_some() {
-                        element.set_property("max-threads", 1i32);
+                let Some(factory) = element.factory() else {
+                    return;
+                };
+
+                match factory.name().as_str() {
+                    // WARNING!
+                    // Be careful adding support for new elements in the future here. Make sure
+                    // your tests have covered newly added code, since it's easy to use an incorrect
+                    // type for the "number of threads" property. Some elements use an unsigned
+                    // integer, others a signed integer. Mixing them up will result
+                    // in a runtime crash with no compiler warning.
+                    factory_name if factory_name.starts_with("avdec_") => {
+                        let gobject_class = element.class();
+                        if gobject_class.find_property("max-threads").is_some() {
+                            element.set_property("max-threads", 1i32);
+                        }
                     }
-                } else if element
-                    .factory()
-                    .is_some_and(|factory| factory.name() == "dav1ddec")
-                {
-                    element.set_property("n-threads", 1u32);
-                } else if element
-                    .factory()
-                    .is_some_and(|factory| ["vp8dec", "vp9dec"].contains(&factory.name().as_str()))
-                {
-                    element.set_property("threads", 1u32);
+                    "dav1ddec" => {
+                        element.set_property("n-threads", 1u32);
+                    }
+                    "vp8dec" | "vp9dec" => {
+                        element.set_property("threads", 1u32);
+                    }
+                    _ => (),
                 }
             }
         ),
