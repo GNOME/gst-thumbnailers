@@ -1,6 +1,7 @@
 /target
 .vscode
 /install
-/tests/test-output.png
+/tests/test-audio-output.png
+/tests/test-video-output.png
 /benches/tearsofsteel_4k.mov
 /benches/tears_of_steel_720p.mov
