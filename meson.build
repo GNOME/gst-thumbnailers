@@ -1,5 +1,5 @@
 project(
-  'gst-video-thumbnailer',
+  'gst-thumbnailers',
   'rust',
   version: '0.1.0',
   meson_version: '>=1.2',

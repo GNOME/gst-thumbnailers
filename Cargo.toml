@@ -1,5 +1,5 @@
 [package]
-name = "gst-video-thumbnailer"
+name = "gst-thumbnailers"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"

@@ -1,5 +1,5 @@
-# gst-video-thumbnailer
+# GStreamer Thumbnailers
 
 ```sh
-$ cargo run -- -i file://$(pwd)/video.mp4 -o thumbnail.png -s 512
+$ cargo run --bin gst-video-thumbnailer -- -p video.mp4 -o thumbnail.png -s 512
 ```

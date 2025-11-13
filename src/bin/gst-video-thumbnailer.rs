@@ -1,3 +1,3 @@
 fn main() {
-    gst_video_thumbnailer::main_video_thumbnailer(std::env::args());
+    gst_thumbnailers::main_video_thumbnailer(std::env::args());
 }

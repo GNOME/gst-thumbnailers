@@ -364,7 +364,7 @@ fn get_thumbnail_from_tag(tag: &gst::message::Tag) -> Option<gst::Sample> {
 
         // TODO: Use gst_tag::TagImageType when it's properly exported
         // Hardcoding values: 0 = None, 1 = Undefined, 3 = FrontCover
-        // See: https://gitlab.gnome.org/sophie-h/gst-video-thumbnailer/-/issues/4
+        // See: https://gitlab.gnome.org/sophie-h/gst-thumbnailers/-/issues/4
         match image_type {
             Some(3) => {
                 // Front cover found - use it immediately

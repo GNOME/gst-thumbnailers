@@ -12,7 +12,7 @@ fn test() {
         ("1-cover.mkv", 5118.),
     ] {
         let data = run_thumbnailer(path);
-        let var = gst_video_thumbnailer::variance(&data);
+        let var = gst_thumbnailers::variance(&data);
 
         assert!(
             f32::abs(var - var_ref) < 200.,
@@ -24,7 +24,7 @@ fn test() {
 fn run_thumbnailer(video: &str) -> Vec<u8> {
     assert_eq!(
         (),
-        gst_video_thumbnailer::main_video_thumbnailer(&[
+        gst_thumbnailers::main_video_thumbnailer(&[
             "gst-video-thumbnailer",
             "-i",
             &gio::File::for_path(format!("tests/{video}")).uri(),

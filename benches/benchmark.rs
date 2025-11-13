@@ -46,7 +46,7 @@ criterion_main!(benches);
 fn run_thumbnailer(video: &str) {
     assert_eq!(
         (),
-        gst_video_thumbnailer::main_video_thumbnailer(&[
+        gst_thumbnailers::main_video_thumbnailer(&[
             "gst-video-thumbnailer",
             "-p",
             video,
