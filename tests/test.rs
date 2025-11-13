@@ -23,8 +23,8 @@ fn test() {
 
 fn run_thumbnailer(video: &str) -> Vec<u8> {
     assert_eq!(
-        gio::glib::ExitCode::new(0),
-        gst_video_thumbnailer::main(&[
+        (),
+        gst_video_thumbnailer::main_video_thumbnailer(&[
             "gst-video-thumbnailer",
             "-i",
             &gio::File::for_path(format!("tests/{video}")).uri(),

@@ -10,7 +10,7 @@ use gio::prelude::*;
 use gst::prelude::*;
 use image::ImageReader;
 
-pub fn main<I, T>(args: I) -> glib::ExitCode
+fn init<I, T>(args: I) -> cli::Args
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
@@ -23,75 +23,81 @@ where
     // and  https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/9672
     disable_hardware_decoders();
 
-    let args = cli::Args::parse_from(args);
-
-    match create_thumbnail(&args.source.uri(), &args.output, args.size) {
-        Ok(_) => glib::ExitCode::SUCCESS,
-        Err(_) => glib::ExitCode::FAILURE,
-    }
+    cli::Args::parse_from(args)
 }
 
-#[derive(Debug)]
-pub enum ThumbnailSource {
-    VideoFrame(u32, u32, Vec<u8>),
-    CoverArt(gst::Sample),
+pub fn main_audio_thumbnailer<I, T>(args: I)
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    let args = init(args);
+
+    get_audio_thumbnail_source(&args.source.uri())
+        .unwrap()
+        .write_png(&args.output, args.size)
+        .unwrap();
 }
 
-fn create_thumbnail(input_uri: &str, output_path: &Path, thumbnail_size: u16) -> Result<(), ()> {
-    match thumbnail_sample(input_uri, thumbnail_size)? {
-        ThumbnailSource::VideoFrame(width, height, frame) => {
-            write_png(output_path, width, height, frame.as_slice());
-            Ok(())
-        }
-        ThumbnailSource::CoverArt(sample) => {
-            let buffer = sample.buffer().ok_or(())?;
-            let map = buffer.map_readable().map_err(|_| ())?;
-            let decoded_img = ImageReader::new(Cursor::new(map.as_slice()))
-                .with_guessed_format()
-                .map_err(|err| {
-                    eprintln!("Failed to guess image format: {err}");
-                })?
-                .decode()
-                .map_err(|err| {
-                    eprintln!("Failed to decode image: {err}");
-                })?;
-            let (new_width, new_height) = scale_thumbnail_dimensions(
-                decoded_img.width() as f32,
-                decoded_img.height() as f32,
-                thumbnail_size,
-            );
-            decoded_img
-                .resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
-                .save(output_path)
-                .map_err(|err| {
-                    eprintln!(
-                        "Error: Failed writing file {}: {err}",
-                        output_path.display()
-                    );
-                })?;
-            Ok(())
-        }
-    }
+pub fn main_video_thumbnailer<I, T>(args: I)
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    let args = init(args);
+
+    get_video_thumbnail_source(&args.source.uri(), args.size)
+        .unwrap()
+        .write_png(&args.output, args.size)
+        .unwrap();
 }
 
-fn thumbnail_sample(input_uri: &str, thumbnail_size: u16) -> Result<ThumbnailSource, ()> {
-    struct Pipeline(gst::Pipeline);
+fn get_audio_thumbnail_source(input_uri: &str) -> Option<ThumbnailSource> {
+    let pipeline = Pipeline::new();
 
-    impl std::ops::Deref for Pipeline {
-        type Target = gst::Pipeline;
+    // Source
+    let uridecodebin = gst::ElementFactory::make("uridecodebin3")
+        .property("uri", input_uri)
+        .build()
+        .unwrap();
 
-        fn deref(&self) -> &Self::Target {
-            &self.0
+    let fakesink = gst::ElementFactory::make("fakesink")
+        .property("sync", false)
+        .build()
+        .unwrap();
+
+    pipeline.add_many(&[&uridecodebin, &fakesink]).unwrap();
+
+    // Connect dynamic pad from uridecodebin3 to fakesink
+    uridecodebin.connect_pad_added(move |_dbin, src_pad| {
+        let sink_pad = fakesink.static_pad("sink").unwrap();
+        if !sink_pad.is_linked() {
+            src_pad.link(&sink_pad).unwrap();
+        }
+    });
+
+    pipeline.set_state(gst::State::Paused).unwrap();
+
+    while let Some(message) = pipeline.bus().unwrap().timed_pop(gst::ClockTime::NONE) {
+        match message.view() {
+            gst::MessageView::AsyncDone(_) => return None,
+            gst::MessageView::Error(err) => {
+                panic!("Error: Failed pre-rolling pipeline: {err}");
+            }
+            gst::MessageView::Tag(tag) => {
+                if let Some(sample) = get_thumbnail_from_tag(tag) {
+                    return Some(ThumbnailSource::CoverArt(sample));
+                }
+            }
+            _ => {}
         }
     }
 
-    impl Drop for Pipeline {
-        fn drop(&mut self) {
-            let _ = self.0.set_state(gst::State::Null);
-        }
-    }
+    None
+}
 
-    let pipeline = Pipeline(gst::Pipeline::new());
+fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<ThumbnailSource, ()> {
+    let pipeline = Pipeline::new();
 
     // Source
     let uridecodebin = gst::ElementFactory::make("uridecodebin3")
@@ -244,33 +250,7 @@ fn thumbnail_sample(input_uri: &str, thumbnail_size: u16) -> Result<ThumbnailSou
                 return Err(());
             }
             gst::MessageView::Tag(tag) => {
-                // Check for any cover art.
-                let tags = tag.tags();
-                let mut cover_sample = None;
-                for sample_value in tags.iter_tag::<gst::tags::Image>() {
-                    let sample = sample_value.get();
-                    let Some(caps) = sample.caps() else { continue };
-
-                    let image_type = caps
-                        .structure(0)
-                        .and_then(|s| s.get::<i32>("image-type").ok());
-
-                    // TODO: Use gst_tag::TagImageType when it's properly exported
-                    // Hardcoding values: 0 = None, 1 = Undefined, 3 = FrontCover
-                    // See: https://gitlab.gnome.org/sophie-h/gst-video-thumbnailer/-/issues/4
-                    match image_type {
-                        Some(3) => {
-                            // Front cover found - use it immediately
-                            return Ok(ThumbnailSource::CoverArt(sample));
-                        }
-                        Some(1) | None if cover_sample.is_none() => {
-                            // Save as fallback
-                            cover_sample = Some(sample);
-                        }
-                        _ => {}
-                    }
-                }
-                if let Some(sample) = cover_sample {
+                if let Some(sample) = get_thumbnail_from_tag(tag) {
                     return Ok(ThumbnailSource::CoverArt(sample));
                 }
             }
@@ -370,6 +350,37 @@ fn thumbnail_sample(input_uri: &str, thumbnail_size: u16) -> Result<ThumbnailSou
     Ok(ThumbnailSource::VideoFrame(width, height, buf))
 }
 
+fn get_thumbnail_from_tag(tag: &gst::message::Tag) -> Option<gst::Sample> {
+    // Check for any cover art.
+    let tags = tag.tags();
+    let mut cover_sample = None;
+    for sample_value in tags.iter_tag::<gst::tags::Image>() {
+        let sample = sample_value.get();
+        let Some(caps) = sample.caps() else { continue };
+
+        let image_type = caps
+            .structure(0)
+            .and_then(|s| s.get::<i32>("image-type").ok());
+
+        // TODO: Use gst_tag::TagImageType when it's properly exported
+        // Hardcoding values: 0 = None, 1 = Undefined, 3 = FrontCover
+        // See: https://gitlab.gnome.org/sophie-h/gst-video-thumbnailer/-/issues/4
+        match image_type {
+            Some(3) => {
+                // Front cover found - use it immediately
+                return Some(sample);
+            }
+            Some(1) | None if cover_sample.is_none() => {
+                // Save as fallback
+                cover_sample = Some(sample);
+            }
+            _ => {}
+        }
+    }
+
+    cover_sample
+}
+
 fn scale_thumbnail_dimensions(width: f32, height: f32, thumbnail_size: u16) -> (u32, u32) {
     let thumbnail_size = thumbnail_size as f32;
     let scale = if width < thumbnail_size && height < thumbnail_size {
@@ -401,6 +412,73 @@ fn disable_hardware_decoders() {
     let hw_list = registry.features_filtered(filter_hw_decoders, false);
     for l in hw_list.iter() {
         registry.remove_feature(l);
+    }
+}
+
+struct Pipeline(gst::Pipeline);
+
+impl Pipeline {
+    pub fn new() -> Self {
+        Self(gst::Pipeline::new())
+    }
+}
+
+impl std::ops::Deref for Pipeline {
+    type Target = gst::Pipeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Drop for Pipeline {
+    fn drop(&mut self) {
+        let _ = self.0.set_state(gst::State::Null);
+    }
+}
+
+#[derive(Debug)]
+pub enum ThumbnailSource {
+    VideoFrame(u32, u32, Vec<u8>),
+    CoverArt(gst::Sample),
+}
+
+impl ThumbnailSource {
+    fn write_png(&self, output_path: &Path, thumbnail_size: u16) -> Result<(), ()> {
+        match self {
+            ThumbnailSource::VideoFrame(width, height, frame) => {
+                write_png(output_path, *width, *height, frame);
+                Ok(())
+            }
+            ThumbnailSource::CoverArt(sample) => {
+                let buffer = sample.buffer().ok_or(())?;
+                let map = buffer.map_readable().map_err(|_| ())?;
+                let decoded_img = ImageReader::new(Cursor::new(map.as_slice()))
+                    .with_guessed_format()
+                    .map_err(|err| {
+                        eprintln!("Failed to guess image format: {err}");
+                    })?
+                    .decode()
+                    .map_err(|err| {
+                        eprintln!("Failed to decode image: {err}");
+                    })?;
+                let (new_width, new_height) = scale_thumbnail_dimensions(
+                    decoded_img.width() as f32,
+                    decoded_img.height() as f32,
+                    thumbnail_size,
+                );
+                decoded_img
+                    .resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
+                    .save(output_path)
+                    .map_err(|err| {
+                        eprintln!(
+                            "Error: Failed writing file {}: {err}",
+                            output_path.display()
+                        );
+                    })?;
+                Ok(())
+            }
+        }
     }
 }
 

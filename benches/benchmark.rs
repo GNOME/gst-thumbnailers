@@ -45,8 +45,8 @@ criterion_main!(benches);
 
 fn run_thumbnailer(video: &str) {
     assert_eq!(
-        gio::glib::ExitCode::new(0),
-        gst_video_thumbnailer::main(&[
+        (),
+        gst_video_thumbnailer::main_video_thumbnailer(&[
             "gst-video-thumbnailer",
             "-p",
             video,
