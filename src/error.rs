@@ -1,5 +1,7 @@
+use std::fmt::Display;
+use std::panic::Location;
+
 use gio::glib;
-use std::{fmt::Display, panic::Location};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -36,6 +38,8 @@ impl std::error::Error for Error {}
 pub enum ErrorKind {
     GLibBool(glib::BoolError),
     Other(String),
+    StdIo(std::io::Error),
+    GLib(glib::Error),
 }
 
 impl std::fmt::Display for ErrorKind {
@@ -43,6 +47,8 @@ impl std::fmt::Display for ErrorKind {
         match self {
             Self::GLibBool(err) => f.write_str(&err.to_string()),
             Self::Other(err) => f.write_str(err),
+            Self::StdIo(err) => f.write_str(&err.to_string()),
+            Self::GLib(err) => f.write_str(&err.to_string()),
         }
     }
 }
@@ -52,6 +58,26 @@ impl From<glib::BoolError> for Error {
     fn from(value: glib::BoolError) -> Self {
         Self {
             kind: ErrorKind::GLibBool(value),
+            location: location(),
+        }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    #[track_caller]
+    fn from(value: std::io::Error) -> Self {
+        Self {
+            kind: ErrorKind::StdIo(value),
+            location: location(),
+        }
+    }
+}
+
+impl From<glib::Error> for Error {
+    #[track_caller]
+    fn from(value: glib::Error) -> Self {
+        Self {
+            kind: ErrorKind::GLib(value),
             location: location(),
         }
     }

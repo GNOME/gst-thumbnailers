@@ -2,7 +2,7 @@ mod cli;
 mod error;
 
 use std::ffi::OsString;
-use std::io::Cursor;
+use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -11,7 +11,9 @@ pub use error::*;
 use gio::glib;
 use gio::prelude::*;
 use gst::prelude::*;
-use image::ImageReader;
+
+const SCALE_FILTER1: image::imageops::FilterType = image::imageops::FilterType::Nearest;
+const SCALE_FILTER2: image::imageops::FilterType = image::imageops::FilterType::Triangle;
 
 fn init<I, T>(args: I) -> cli::Args
 where
@@ -491,54 +493,96 @@ pub enum ThumbnailSource {
 }
 
 impl ThumbnailSource {
-    fn write_png(&self, output_path: &Path, thumbnail_size: u16) -> std::result::Result<(), ()> {
+    fn write_png(&self, output_path: &Path, thumbnail_size: u16) -> Result<()> {
         match self {
             ThumbnailSource::VideoFrame(width, height, frame) => {
-                write_png(output_path, *width, *height, frame);
+                write_png(output_path, *width, *height, frame)?;
                 Ok(())
             }
             ThumbnailSource::CoverArt(sample) => {
-                let buffer = sample.buffer().ok_or(())?;
-                let map = buffer.map_readable().map_err(|_| ())?;
-                let decoded_img = ImageReader::new(Cursor::new(map.as_slice()))
-                    .with_guessed_format()
-                    .map_err(|err| {
-                        eprintln!("Failed to guess image format: {err}");
-                    })?
-                    .decode()
-                    .map_err(|err| {
-                        eprintln!("Failed to decode image: {err}");
-                    })?;
-                let (new_width, new_height) = scale_thumbnail_dimensions(
-                    decoded_img.width() as f32,
-                    decoded_img.height() as f32,
+                let buffer = sample.buffer().unwrap();
+                let map = buffer.map_readable()?;
+
+                let loader = gly::Loader::for_bytes(&gly::glib::Bytes::from_owned(map.to_vec()));
+                loader.set_accepted_memory_formats(gly::MemoryFormatSelection::R8G8B8);
+
+                let image = loader.load()?;
+                let frame = image.next_frame()?;
+
+                let (thumbnail_width, thumbnail_height) = scale_thumbnail_dimensions(
+                    frame.width() as f32,
+                    frame.height() as f32,
                     thumbnail_size,
                 );
-                decoded_img
-                    .resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
-                    .save(output_path)
-                    .map_err(|err| {
-                        eprintln!(
-                            "Error: Failed writing file {}: {err}",
-                            output_path.display()
-                        );
-                    })?;
+                let data = resize::<image::Rgb<u8>>(&frame, thumbnail_width, thumbnail_height);
+
+                let creator = gly::Creator::new("image/png")?;
+                creator.add_frame(
+                    thumbnail_width,
+                    thumbnail_height,
+                    frame.memory_format(),
+                    &gly::glib::Bytes::from_owned(data),
+                )?;
+
+                let image_data = creator.create()?.unwrap();
+
+                std::fs::File::create(output_path)
+                    .unwrap()
+                    .write_all(&image_data.data())?;
+
                 Ok(())
             }
         }
     }
 }
 
-fn write_png(output_path: &Path, thumbnail_width: u32, thumbnail_height: u32, buf: &[u8]) {
-    let out_file = std::fs::File::create(output_path).unwrap();
-    let buf_writer = std::io::BufWriter::new(out_file);
+fn write_png(
+    output_path: &Path,
+    thumbnail_width: u32,
+    thumbnail_height: u32,
+    buf: &[u8],
+) -> Result<()> {
+    let creator = gly::Creator::new("image/png")?;
+    creator.add_frame(
+        thumbnail_width,
+        thumbnail_height,
+        gly::MemoryFormat::R8g8b8,
+        &gly::glib::Bytes::from_owned(buf.to_vec()),
+    )?;
 
-    let mut encoder = png::Encoder::new(buf_writer, thumbnail_width, thumbnail_height);
-    encoder.set_color(png::ColorType::Rgb);
+    let encoded_image = creator.create()?.unwrap();
 
-    let mut writer = encoder.write_header().unwrap();
+    let data = encoded_image.data();
 
-    writer.write_image_data(buf).unwrap();
+    let mut out_file = std::fs::File::create(output_path)?;
+    out_file.write_all(&data)?;
+
+    Ok(())
+}
+
+fn resize<T: image::Pixel<Subpixel = u8> + 'static>(
+    frame: &gly::Frame,
+    thumbnail_width: u32,
+    thumbnail_height: u32,
+) -> Vec<u8> {
+    let img =
+        image::ImageBuffer::<T, _>::from_raw(frame.width(), frame.height(), frame.buf_bytes())
+            .unwrap();
+
+    let rought_scaled = image::imageops::resize(
+        &img,
+        thumbnail_width * 2,
+        thumbnail_height * 2,
+        SCALE_FILTER1,
+    );
+
+    image::imageops::resize(
+        &rought_scaled,
+        thumbnail_width,
+        thumbnail_height,
+        SCALE_FILTER2,
+    )
+    .into_raw()
 }
 
 pub fn variance(xs: &[u8]) -> f32 {

@@ -3,27 +3,26 @@ name = "gst-thumbnailers"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-license = "GPL-3.0-only"
+license = "GPL-3.0-or-later"
 
 [profile.release]
 lto = true
 codegen-units = 1
 
 [dependencies]
-gio = { version = "0.21.1", features = ["v2_62"] }
+gio = "0.21.1"
 gst = { package = "gstreamer", version = "0.24.3" }
 gst-app = { package = "gstreamer-app", version = "0.24.0" }
 gst-sys = { package = "gstreamer-sys", version = "0.24.0" }
 gst-video = { package = "gstreamer-video", version = "0.24.3" }
-gst-tag = { package = "gstreamer-tag", version = "0.24.3" }
-image = "0.25.8"
-png = "0.18.0"
 clap = { version = "4.5.51", default-features = false, features = [
     "derive",
     "std",
     "help",
     "usage",
 ] }
+gly = { version = "0.0.1", package = "libglycin-rebind" }
+image = { version = "0.25.8", default-features = false }
 
 [dev-dependencies]
 criterion = "0.7"

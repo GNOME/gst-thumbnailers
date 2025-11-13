@@ -1,5 +1,6 @@
-use gio::prelude::*;
 use std::path::PathBuf;
+
+use gio::prelude::*;
 
 #[derive(Debug, clap::Parser)]
 #[command(version, about)]

@@ -2,6 +2,9 @@
   before_script:
     - apt-get update
     - apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-good
+    - 'echo -e "Types: deb\nURIs: https://deb.debian.org/debian/\nSuites: sid\nComponents: main" > /etc/apt/sources.list.d/forky.sources'
+    - apt-get update
+    - apt-get install -y libglycin-2-dev
   interruptible: true
 
 test-x86_64:

@@ -47,7 +47,7 @@ fn test_audio_thumbnailer() {
 }
 
 fn run_video_thumbnailer(video: &str) -> gst_thumbnailers::Result<Vec<u8>> {
-    gst_thumbnailers::main_video_thumbnailer(&[
+    gst_thumbnailers::main_video_thumbnailer([
         "gst-video-thumbnailer",
         "-i",
         &gio::File::for_path(format!("tests/{video}")).uri(),
@@ -61,7 +61,7 @@ fn run_video_thumbnailer(video: &str) -> gst_thumbnailers::Result<Vec<u8>> {
 }
 
 fn run_audio_thumbnailer(audio: &str) -> Vec<u8> {
-    gst_thumbnailers::main_audio_thumbnailer(&[
+    gst_thumbnailers::main_audio_thumbnailer([
         "gst-audio-thumbnailer",
         "-i",
         &gio::File::for_path(format!("tests/{audio}")).uri(),
@@ -76,12 +76,9 @@ fn run_audio_thumbnailer(audio: &str) -> Vec<u8> {
 }
 
 fn read_png(path: &str) -> Vec<u8> {
-    let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path).unwrap()));
-    let mut reader = decoder.read_info().unwrap();
-    let mut buf = vec![0; reader.output_buffer_size().unwrap()];
+    let loader = gly::Loader::new(&gly::gio::File::for_path(path));
+    let image = loader.load().unwrap();
+    let frame = image.next_frame().unwrap();
 
-    let info = reader.next_frame(&mut buf).unwrap();
-    buf.truncate(info.buffer_size());
-
-    buf.iter().flat_map(|x| x.to_ne_bytes()).collect()
+    frame.buf_bytes().to_vec()
 }

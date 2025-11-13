@@ -5,6 +5,9 @@ project(
   meson_version: '>=1.2',
 )
 
+dependency('gstreamer-1.0', version: '>=1.26.0')
+dependency('glycin-2', version: '>=2.0.0')
+
 if get_option('profile') == 'release'
   rust_target = 'release'
   cargo_profile = 'release'
