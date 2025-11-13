@@ -1,10 +1,12 @@
 mod cli;
+mod error;
 
 use clap::Parser;
 use std::ffi::OsString;
 use std::io::Cursor;
 use std::path::Path;
 
+pub use error::*;
 use gio::glib;
 use gio::prelude::*;
 use gst::prelude::*;
@@ -26,93 +28,103 @@ where
     cli::Args::parse_from(args)
 }
 
-pub fn main_audio_thumbnailer<I, T>(args: I)
+pub fn main_audio_thumbnailer<I, T>(args: I) -> Result<()>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
     let args = init(args);
 
-    get_audio_thumbnail_source(&args.source.uri())
-        .unwrap()
+    get_audio_thumbnail_source(&args.source.uri())?
+        .ok_or(Error::other("No tag image found"))?
         .write_png(&args.output, args.size)
         .unwrap();
+
+    Ok(())
 }
 
-pub fn main_video_thumbnailer<I, T>(args: I)
+pub fn main_video_thumbnailer<I, T>(args: I) -> Result<()>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
     let args = init(args);
 
-    get_video_thumbnail_source(&args.source.uri(), args.size)
-        .unwrap()
+    get_video_thumbnail_source(&args.source.uri(), args.size)?
         .write_png(&args.output, args.size)
         .unwrap();
+
+    Ok(())
 }
 
-fn get_audio_thumbnail_source(input_uri: &str) -> Option<ThumbnailSource> {
+fn get_audio_thumbnail_source(input_uri: &str) -> Result<Option<ThumbnailSource>> {
     let pipeline = Pipeline::new();
 
     // Source
     let uridecodebin = gst::ElementFactory::make("uridecodebin3")
         .property("uri", input_uri)
-        .build()
-        .unwrap();
+        .build()?;
 
     let fakesink = gst::ElementFactory::make("fakesink")
         .property("sync", false)
-        .build()
-        .unwrap();
+        .build()?;
 
-    pipeline.add_many(&[&uridecodebin, &fakesink]).unwrap();
+    pipeline.add_many([&uridecodebin, &fakesink])?;
 
     // Connect dynamic pad from uridecodebin3 to fakesink
-    uridecodebin.connect_pad_added(move |_dbin, src_pad| {
+    uridecodebin.connect_pad_added(move |_, src_pad| {
         let sink_pad = fakesink.static_pad("sink").unwrap();
         if !sink_pad.is_linked() {
             src_pad.link(&sink_pad).unwrap();
         }
     });
 
-    pipeline.set_state(gst::State::Paused).unwrap();
+    // Get stream initialized
+    match pipeline.set_state(gst::State::Paused) {
+        Ok(gst::StateChangeSuccess::NoPreroll) => {
+            return Err(Error::other(
+                "Error: thumbnails of live streams make little sense",
+            ));
+        }
+        Err(_) => {
+            return Err(Error::other(state_change_error_details(&pipeline)));
+        }
+        Ok(_) => {}
+    }
 
     while let Some(message) = pipeline.bus().unwrap().timed_pop(gst::ClockTime::NONE) {
         match message.view() {
-            gst::MessageView::AsyncDone(_) => return None,
+            gst::MessageView::AsyncDone(_) => return Ok(None),
             gst::MessageView::Error(err) => {
-                panic!("Error: Failed pre-rolling pipeline: {err}");
+                Error::other(format!("Error: Failed pre-rolling pipeline: {err}"));
             }
             gst::MessageView::Tag(tag) => {
                 if let Some(sample) = get_thumbnail_from_tag(tag) {
-                    return Some(ThumbnailSource::CoverArt(sample));
+                    return Ok(Some(ThumbnailSource::CoverArt(sample)));
                 }
             }
             _ => {}
         }
     }
 
-    None
+    Ok(None)
 }
 
-fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<ThumbnailSource, ()> {
+fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<ThumbnailSource> {
     let pipeline = Pipeline::new();
 
     // Source
     let uridecodebin = gst::ElementFactory::make("uridecodebin3")
         .property("uri", input_uri)
-        .build()
-        .unwrap();
+        .build()?;
 
     // Filters
-    let videoscale = gst::ElementFactory::make("videoscale").build().unwrap();
-    let videoconvert = gst::ElementFactory::make("videoconvert").build().unwrap();
-    let capsfilter = gst::ElementFactory::make("capsfilter").build().unwrap();
+    let videoscale = gst::ElementFactory::make("videoscale").build()?;
+    let videoconvert = gst::ElementFactory::make("videoconvert").build()?;
+    let capsfilter = gst::ElementFactory::make("capsfilter").build()?;
     let videoflip = gst::ElementFactory::make("videoflip")
         .property("video-direction", gst_video::VideoOrientationMethod::Auto)
-        .build()
-        .unwrap();
+        .build()?;
 
     // Sink
     let appsink = gst_app::AppSink::builder()
@@ -121,16 +133,14 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
         .max_buffers(1)
         .build();
 
-    pipeline
-        .add_many([
-            &uridecodebin,
-            &videoscale,
-            &videoconvert,
-            &capsfilter,
-            &videoflip,
-            appsink.upcast_ref(),
-        ])
-        .unwrap();
+    pipeline.add_many([
+        &uridecodebin,
+        &videoscale,
+        &videoconvert,
+        &capsfilter,
+        &videoflip,
+        appsink.upcast_ref(),
+    ])?;
 
     // Static links
     gst::Element::link_many([
@@ -139,8 +149,7 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
         &capsfilter,
         &videoflip,
         appsink.upcast_ref(),
-    ])
-    .unwrap();
+    ])?;
 
     // Manually set number of worker threads for decoders in order to reduce memory
     // usage on setups with many cores, see
@@ -217,28 +226,14 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
     // Get stream initialized
     match pipeline.set_state(gst::State::Paused) {
         Ok(gst::StateChangeSuccess::NoPreroll) => {
-            eprintln!("Error: thumbnails of live streams make little sense");
-            return Err(());
+            return Err(Error::other(
+                "Error: thumbnails of live streams make little sense",
+            ));
         }
         Err(_) => {
-            eprintln!("Error: Failed setting pipeline to PAUSED");
-            if let Some(msg) = pipeline
-                .bus()
-                .unwrap()
-                .pop_filtered(&[gst::MessageType::Error])
-            {
-                let gst::MessageView::Error(msg) = msg.view() else {
-                    unreachable!();
-                };
-
-                eprintln!("\t{}", msg.error());
-                if let Some(debug) = msg.debug() {
-                    eprintln!("\t{debug}");
-                }
-            }
-            return Err(());
+            return Err(Error::other(state_change_error_details(&pipeline)));
         }
-        _ => {}
+        Ok(_) => {}
     }
 
     // Wait until stream is initialized
@@ -246,8 +241,9 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
         match message.view() {
             gst::MessageView::AsyncDone(_) => break,
             gst::MessageView::Error(err) => {
-                eprintln!("Error: Failed pre-rolling pipeline: {}", err.error());
-                return Err(());
+                return Err(Error::other(format!(
+                    "Error: Failed pre-rolling pipeline: {err}"
+                )));
             }
             gst::MessageView::Tag(tag) => {
                 if let Some(sample) = get_thumbnail_from_tag(tag) {
@@ -281,7 +277,7 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
         [10, 20, 30, 60, 90]
     };
 
-    let mut samples = vec![appsink.pull_preroll().unwrap()];
+    let mut samples = vec![appsink.pull_preroll()?];
 
     // Pull frames at seek positions
     for percentage in seek_at {
@@ -304,14 +300,12 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
         );
 
         if let Some(gst::MessageView::Error(err)) = msg.as_ref().map(|msg| msg.view()) {
-            eprintln!(
-                "Error: Failed pre-rolling pipeline after seek: {}",
-                err.error()
-            );
-            return Err(());
+            return Err(Error::other(format!(
+                "Error: Failed pre-rolling pipeline after seek: {err}"
+            )));
         }
 
-        samples.push(appsink.pull_preroll().unwrap());
+        samples.push(appsink.pull_preroll()?);
     }
 
     let samples_with_variance = samples
@@ -330,13 +324,13 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
         .max_by(|(_, var1), (_, var2)| var1.partial_cmp(var2).unwrap())
         .unwrap();
     let caps = sample.caps().unwrap();
-    let info = gst_video::VideoInfo::from_caps(caps).unwrap();
+    let info = gst_video::VideoInfo::from_caps(caps)?;
     let width = info.width();
     let height = info.height();
     let stride = info.stride()[0] as usize;
 
     let new_stride = width as usize * 3;
-    let sample_map = sample.buffer().unwrap().map_readable().unwrap();
+    let sample_map = sample.buffer().unwrap().map_readable()?;
 
     // Get rid of padding after stride
     let mut buf = vec![0; height as usize * new_stride];
@@ -348,6 +342,28 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
     }
 
     Ok(ThumbnailSource::VideoFrame(width, height, buf))
+}
+
+fn state_change_error_details(pipeline: &gst::Pipeline) -> String {
+    let mut err_msg = String::from("Error: Failed setting pipeline to PAUSED");
+    if let Some(msg) = pipeline
+        .bus()
+        .unwrap()
+        .pop_filtered(&[gst::MessageType::Error])
+    {
+        let gst::MessageView::Error(msg) = msg.view() else {
+            unreachable!();
+        };
+
+        err_msg.push('\n');
+        err_msg.push_str(&msg.to_string());
+        if let Some(debug) = msg.debug() {
+            err_msg.push('\n');
+            err_msg.push_str(&debug);
+        }
+    }
+
+    err_msg
 }
 
 fn get_thumbnail_from_tag(tag: &gst::message::Tag) -> Option<gst::Sample> {
@@ -444,7 +460,7 @@ pub enum ThumbnailSource {
 }
 
 impl ThumbnailSource {
-    fn write_png(&self, output_path: &Path, thumbnail_size: u16) -> Result<(), ()> {
+    fn write_png(&self, output_path: &Path, thumbnail_size: u16) -> std::result::Result<(), ()> {
         match self {
             ThumbnailSource::VideoFrame(width, height, frame) => {
                 write_png(output_path, *width, *height, frame);

@@ -44,16 +44,14 @@ criterion_group!(benches, criterion_benchmark);
 criterion_main!(benches);
 
 fn run_thumbnailer(video: &str) {
-    assert_eq!(
-        (),
-        gst_thumbnailers::main_video_thumbnailer(&[
-            "gst-video-thumbnailer",
-            "-p",
-            video,
-            "-o",
-            "/dev/null",
-            "-s",
-            "256"
-        ])
-    );
+    gst_thumbnailers::main_video_thumbnailer(&[
+        "gst-video-thumbnailer",
+        "-p",
+        video,
+        "-o",
+        "/dev/null",
+        "-s",
+        "256",
+    ])
+    .unwrap();
 }

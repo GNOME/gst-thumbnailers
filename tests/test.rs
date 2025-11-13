@@ -22,18 +22,16 @@ fn test() {
 }
 
 fn run_thumbnailer(video: &str) -> Vec<u8> {
-    assert_eq!(
-        (),
-        gst_thumbnailers::main_video_thumbnailer(&[
-            "gst-video-thumbnailer",
-            "-i",
-            &gio::File::for_path(format!("tests/{video}")).uri(),
-            "-o",
-            "tests/test-output.png",
-            "-s",
-            "256"
-        ])
-    );
+    gst_thumbnailers::main_video_thumbnailer(&[
+        "gst-video-thumbnailer",
+        "-i",
+        &gio::File::for_path(format!("tests/{video}")).uri(),
+        "-o",
+        "tests/test-output.png",
+        "-s",
+        "256",
+    ])
+    .unwrap();
 
     read_png("tests/test-output.png")
 }
