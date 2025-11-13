@@ -65,6 +65,7 @@ fn get_audio_thumbnail_source(input_uri: &str) -> Result<Option<ThumbnailSource>
         .property("uri", input_uri)
         .build()?;
 
+    // Sink
     let fakesink = gst::ElementFactory::make("fakesink")
         .property("sync", false)
         .build()?;
@@ -92,11 +93,14 @@ fn get_audio_thumbnail_source(input_uri: &str) -> Result<Option<ThumbnailSource>
         Ok(_) => {}
     }
 
+    // Wait until stream is initialized
     while let Some(message) = pipeline.bus().unwrap().timed_pop(gst::ClockTime::NONE) {
         match message.view() {
             gst::MessageView::AsyncDone(_) => return Ok(None),
             gst::MessageView::Error(err) => {
-                Error::other(format!("Error: Failed pre-rolling pipeline: {err}"));
+                return Err(Error::other(format!(
+                    "Error: Failed pre-rolling pipeline: {err}"
+                )));
             }
             gst::MessageView::Tag(tag) => {
                 if let Some(sample) = get_thumbnail_from_tag(tag) {
