@@ -1,11 +1,12 @@
 mod cli;
 mod error;
 
-use clap::Parser;
 use std::ffi::OsString;
 use std::io::Cursor;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
+use clap::Parser;
 pub use error::*;
 use gio::glib;
 use gio::prelude::*;
@@ -192,40 +193,60 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
         ),
     );
 
-    uridecodebin.connect_pad_added(move |_, src_pad| {
-        let stream = src_pad.stream().unwrap();
-        if stream.stream_type() != gst::StreamType::VIDEO {
-            return;
+    // This error message will be replace once pads are detected
+    let source_link_status = Arc::new(Mutex::new(Err(Error::other("No pad added for source."))));
+    uridecodebin.connect_pad_added(glib::clone!(
+        #[strong]
+        source_link_status,
+        move |_, src_pad| {
+            let link_source = || {
+                let stream = src_pad.stream().unwrap();
+                if stream.stream_type() != gst::StreamType::VIDEO {
+                    return Err(Error::other(format!(
+                        "Stream is of type '{}' instead of 'video'",
+                        stream.stream_type()
+                    )));
+                }
+                let caps = stream.caps().unwrap();
+                let s = caps.structure(0).unwrap();
+
+                let mut width = s.get::<i32>("width").unwrap() as f32;
+                let height = s.get::<i32>("height").unwrap() as f32;
+                if let Some(par) = s
+                    .get_optional::<gst::Fraction>("pixel-aspect-ratio")
+                    .map_err(Error::other)?
+                {
+                    width *= par.numer() as f32 / par.denom() as f32;
+                }
+
+                let (new_width, new_height) =
+                    scale_thumbnail_dimensions(width, height, thumbnail_size);
+
+                let caps = gst::Caps::builder("video/x-raw")
+                    .field("format", "RGB")
+                    .field("width", new_width as i32)
+                    .field("height", new_height as i32)
+                    .field("pixel-aspect-ratio", gst::Fraction::new(1, 1))
+                    .build();
+
+                capsfilter.set_property("caps", caps);
+
+                // Link source pad to sink of first filter
+                let sink_pad = videoscale.static_pad("sink").unwrap();
+                if !sink_pad.is_linked() {
+                    src_pad.link(&sink_pad).map_err(Error::other)?;
+                }
+
+                Ok(())
+            };
+
+            let result = link_source();
+            let mut status = source_link_status.lock().unwrap();
+            if status.is_err() {
+                *status = result
+            }
         }
-        let caps = stream.caps().unwrap();
-        let s = caps.structure(0).unwrap();
-
-        let mut width = s.get::<i32>("width").unwrap() as f32;
-        let height = s.get::<i32>("height").unwrap() as f32;
-        if let Some(par) = s
-            .get_optional::<gst::Fraction>("pixel-aspect-ratio")
-            .unwrap()
-        {
-            width *= par.numer() as f32 / par.denom() as f32;
-        }
-
-        let (new_width, new_height) = scale_thumbnail_dimensions(width, height, thumbnail_size);
-
-        let caps = gst::Caps::builder("video/x-raw")
-            .field("format", "RGB")
-            .field("width", new_width as i32)
-            .field("height", new_height as i32)
-            .field("pixel-aspect-ratio", gst::Fraction::new(1, 1))
-            .build();
-
-        capsfilter.set_property("caps", caps);
-
-        // Link source pad to sink of first filter
-        let sink_pad = videoscale.static_pad("sink").unwrap();
-        if !sink_pad.is_linked() {
-            src_pad.link(&sink_pad).unwrap();
-        }
-    });
+    ));
 
     // Get stream initialized
     match pipeline.set_state(gst::State::Paused) {
@@ -243,11 +264,17 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
     // Wait until stream is initialized
     while let Some(message) = pipeline.bus().unwrap().timed_pop(gst::ClockTime::NONE) {
         match message.view() {
-            gst::MessageView::AsyncDone(_) => break,
+            gst::MessageView::StreamsSelected(_) => {
+                // This is fired after all pads have been connected. So check here if a usable
+                // pad has been connected.
+                std::mem::replace(&mut *source_link_status.lock().unwrap(), Ok(()))?;
+            }
+            gst::MessageView::AsyncDone(_) => {
+                // We didn't find a stored thumbnail/cover, so continue with extracting frames
+                break;
+            }
             gst::MessageView::Error(err) => {
-                return Err(Error::other(format!(
-                    "Error: Failed pre-rolling pipeline: {err}"
-                )));
+                return Err(Error::other(format!("Failed pre-rolling pipeline: {err}")));
             }
             gst::MessageView::Tag(tag) => {
                 if let Some(sample) = get_thumbnail_from_tag(tag) {

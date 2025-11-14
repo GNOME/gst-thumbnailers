@@ -11,7 +11,7 @@ fn test_video_thumbnailer() {
         // Should use embedded cover image instead of frame
         ("1-cover.mkv", 5118.),
     ] {
-        let data = run_video_thumbnailer(path);
+        let data = run_video_thumbnailer(path).unwrap();
         let var = gst_thumbnailers::variance(&data);
 
         assert!(
@@ -19,6 +19,15 @@ fn test_video_thumbnailer() {
             "{path}: {var:.0} is not approx equal {var_ref}"
         )
     }
+}
+
+#[test]
+fn test_video_thumbnailer_on_audio() {
+    let err = run_video_thumbnailer("audio-cover-jpg.mp3").unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("Stream is of type 'audio' instead of 'video'")
+    );
 }
 
 #[test]
@@ -37,7 +46,7 @@ fn test_audio_thumbnailer() {
     }
 }
 
-fn run_video_thumbnailer(video: &str) -> Vec<u8> {
+fn run_video_thumbnailer(video: &str) -> gst_thumbnailers::Result<Vec<u8>> {
     gst_thumbnailers::main_video_thumbnailer(&[
         "gst-video-thumbnailer",
         "-i",
@@ -46,10 +55,9 @@ fn run_video_thumbnailer(video: &str) -> Vec<u8> {
         "tests/test-video-output.png",
         "-s",
         "256",
-    ])
-    .unwrap();
+    ])?;
 
-    read_png("tests/test-video-output.png")
+    Ok(read_png("tests/test-video-output.png"))
 }
 
 fn run_audio_thumbnailer(audio: &str) -> Vec<u8> {
