@@ -341,7 +341,8 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
         samples.push(appsink.pull_preroll()?);
     }
 
-    let samples_with_variance = samples
+    // Use sample with highest variance
+    let (sample, _) = samples
         .into_iter()
         .filter_map(|x| {
             let caps = x.caps().unwrap();
@@ -353,13 +354,9 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
 
             Some((x, var))
         })
-        .collect::<Vec<_>>();
-
-    // Use sample with highest variance
-    let (sample, _) = samples_with_variance
-        .iter()
         .max_by(|(_, var1), (_, var2)| var1.partial_cmp(var2).unwrap())
         .unwrap();
+
     let caps = sample.caps().unwrap();
     let info = gst_video::VideoInfo::from_caps(caps)?;
     let width = info.width();
