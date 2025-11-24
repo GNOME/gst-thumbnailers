@@ -344,9 +344,13 @@ fn get_video_thumbnail_source(input_uri: &str, thumbnail_size: u16) -> Result<Th
     let samples_with_variance = samples
         .into_iter()
         .filter_map(|x| {
+            let caps = x.caps().unwrap();
+            let info = gst_video::VideoInfo::from_caps(caps).ok()?;
+
             let data = x.buffer()?.map_readable().ok()?;
-            let var = variance(data.as_slice());
+            let var = variance(&data, info.width(), info.stride()[0] as u32, info.height());
             drop(data);
+
             Some((x, var))
         })
         .collect::<Vec<_>>();
@@ -585,9 +589,30 @@ fn resize<T: image::Pixel<Subpixel = u8> + 'static>(
     .into_raw()
 }
 
-pub fn variance(xs: &[u8]) -> f32 {
-    let avg = xs.iter().map(|x| *x as f32).sum::<f32>() / xs.len() as f32;
-    let sq_diff = xs.iter().map(|x| (*x as f32 - avg).powi(2)).sum::<f32>();
+pub fn variance(xs: &[u8], width: u32, stride: u32, height: u32) -> f32 {
+    let effective_stride = width as usize * 3; // format == "RGB"
+    let len = (effective_stride * height as usize) as f32;
 
-    sq_diff / xs.len() as f32
+    let avg = xs
+        .chunks_exact(stride as usize)
+        .map(|line| {
+            line[0..effective_stride]
+                .iter()
+                .map(|&x| x as f32)
+                .sum::<f32>()
+        })
+        .sum::<f32>()
+        / len;
+
+    let sq_diff = xs
+        .chunks_exact(stride as usize)
+        .map(|line| {
+            line[0..effective_stride]
+                .iter()
+                .map(|&x| (x as f32 - avg).powi(2))
+                .sum::<f32>()
+        })
+        .sum::<f32>();
+
+    sq_diff / len
 }

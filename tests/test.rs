@@ -11,8 +11,13 @@ fn test_video_thumbnailer() {
         // Should use embedded cover image instead of frame
         ("1-cover.mkv", 5118.),
     ] {
-        let data = run_video_thumbnailer(path).unwrap();
-        let var = gst_thumbnailers::variance(&data);
+        let frame = run_video_thumbnailer(path).unwrap();
+        let var = gst_thumbnailers::variance(
+            &frame.buf_bytes(),
+            frame.width(),
+            frame.stride(),
+            frame.height(),
+        );
 
         assert!(
             f32::abs(var - var_ref) < 200.,
@@ -36,8 +41,13 @@ fn test_audio_thumbnailer() {
         ("audio-cover-jpg.mp3", 14500.),
         ("audio-cover-png.flac", 14500.),
     ] {
-        let data = run_audio_thumbnailer(path);
-        let var = gst_thumbnailers::variance(&data);
+        let frame = run_audio_thumbnailer(path);
+        let var = gst_thumbnailers::variance(
+            &frame.buf_bytes(),
+            frame.width(),
+            frame.stride(),
+            frame.height(),
+        );
 
         assert!(
             f32::abs(var - var_ref) < 200.,
@@ -46,7 +56,7 @@ fn test_audio_thumbnailer() {
     }
 }
 
-fn run_video_thumbnailer(video: &str) -> gst_thumbnailers::Result<Vec<u8>> {
+fn run_video_thumbnailer(video: &str) -> gst_thumbnailers::Result<gly::Frame> {
     gst_thumbnailers::main_video_thumbnailer([
         "gst-video-thumbnailer",
         "-i",
@@ -60,7 +70,7 @@ fn run_video_thumbnailer(video: &str) -> gst_thumbnailers::Result<Vec<u8>> {
     Ok(read_png("tests/test-video-output.png"))
 }
 
-fn run_audio_thumbnailer(audio: &str) -> Vec<u8> {
+fn run_audio_thumbnailer(audio: &str) -> gly::Frame {
     gst_thumbnailers::main_audio_thumbnailer([
         "gst-audio-thumbnailer",
         "-i",
@@ -75,10 +85,8 @@ fn run_audio_thumbnailer(audio: &str) -> Vec<u8> {
     read_png("tests/test-audio-output.png")
 }
 
-fn read_png(path: &str) -> Vec<u8> {
+fn read_png(path: &str) -> gly::Frame {
     let loader = gly::Loader::new(&gly::gio::File::for_path(path));
     let image = loader.load().unwrap();
-    let frame = image.next_frame().unwrap();
-
-    frame.buf_bytes().to_vec()
+    image.next_frame().unwrap()
 }
