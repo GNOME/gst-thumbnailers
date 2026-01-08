@@ -28,6 +28,10 @@ cargo_bin = find_program('cargo')
 cargo_env = environment()
 cargo_env.set('CARGO_HOME', cargo_home)
 
+cargo_options = ['--manifest-path', cargo_manifest]
+cargo_options += ['--target-dir', cargo_target_dir]
+cargo_options += ['--profile', cargo_profile]
+
 mime_types = {
   'gst-video-thumbnailer': [
     'application/mxf',
@@ -153,6 +157,14 @@ binaries = [
   'gst-audio-thumbnailer',
 ]
 
+test(
+  'Cargo tests (main application)',
+  cargo_bin,
+  args: ['test', cargo_options],
+  timeout: 3600,
+  env: cargo_env,
+)
+
 gst_thumbnailers = custom_target(
   'gst-thumbnailers',
   build_by_default: true,
@@ -163,9 +175,7 @@ gst_thumbnailers = custom_target(
   command: [
     cargo_bin,
     'build',
-    '--target-dir', cargo_target_dir,
-    '--profile', cargo_profile,
-    '--manifest-path', cargo_manifest,
+    cargo_options,
   ],
 )
 
