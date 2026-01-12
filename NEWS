@@ -1,4 +1,4 @@
-## 1.0.alpha.2
+## 1.0.alpha.3
 
 - First release as official GNOME software.
 - Run tests from `meson test`

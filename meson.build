@@ -1,7 +1,7 @@
 project(
   'gst-thumbnailers',
   'rust',
-  version: '1.0.alpha.1',
+  version: '1.0.alpha.3',
   meson_version: '>=1.2',
 )
 
