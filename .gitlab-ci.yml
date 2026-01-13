@@ -14,7 +14,7 @@ include:
       dist-job-name: build-release-tarball
 
 build-release-tarball:
-  image: rust:1.88-trixie
+  image: rust:1.92-trixie
   extends: .install_dependencies
   script:
     - meson setup builddir
@@ -26,14 +26,14 @@ build-release-tarball:
       - public-dist
 
 test-x86_64:
-  image: rust:1.88-trixie
+  image: rust:1.92-trixie
   extends: .install_dependencies
   interruptible: true
   script:
     - cargo test
 
 test-aarch64:
-  image: rust:1.88-trixie
+  image: rust:1.92-trixie
   extends: .install_dependencies
   tags:
     - aarch64
