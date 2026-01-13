@@ -2,7 +2,7 @@
 name = "gst-thumbnailers"
 version = "1.0.0-alpha.3"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.92"
 license = "GPL-3.0-or-later"
 
 [profile.release]
@@ -10,18 +10,18 @@ lto = true
 codegen-units = 1
 
 [dependencies]
-gio = "0.21.1"
-gst = { package = "gstreamer", version = "0.24.3" }
-gst-app = { package = "gstreamer-app", version = "0.24.0" }
-gst-sys = { package = "gstreamer-sys", version = "0.24.0" }
-gst-video = { package = "gstreamer-video", version = "0.24.3" }
+gio = "0.22.0-alpha"
+gst = { package = "gstreamer", version = "0.25.0-alpha" }
+gst-app = { package = "gstreamer-app", version = "0.25.0-alpha" }
+gst-sys = { package = "gstreamer-sys", version = "0.25.0-alpha" }
+gst-video = { package = "gstreamer-video", version = "0.25.0-alpha" }
 clap = { version = "4.5.51", default-features = false, features = [
     "derive",
     "std",
     "help",
     "usage",
 ] }
-gly = { version = "0.0.1", package = "libglycin-rebind" }
+gly = { version = "0.1.0-alpha", package = "libglycin-rebind" }
 image = { version = "0.25.8", default-features = false }
 
 [dev-dependencies]
