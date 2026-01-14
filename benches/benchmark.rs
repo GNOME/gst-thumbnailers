@@ -25,9 +25,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 .unwrap();
         }
 
-        c.bench_function(&video_file, |b| {
-            b.iter(|| run_thumbnailer(black_box(&path)))
-        });
+        c.bench_function(video_file, |b| b.iter(|| run_thumbnailer(black_box(&path))));
     }
     eprintln!(
         "Used GStreamer version:\n{}",
@@ -44,7 +42,7 @@ criterion_group!(benches, criterion_benchmark);
 criterion_main!(benches);
 
 fn run_thumbnailer(video: &str) {
-    gst_thumbnailers::main_video_thumbnailer(&[
+    gst_thumbnailers::main_video_thumbnailer([
         "gst-video-thumbnailer",
         "-p",
         video,
