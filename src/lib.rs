@@ -15,12 +15,41 @@ use gst::prelude::*;
 const SCALE_FILTER1: image::imageops::FilterType = image::imageops::FilterType::Nearest;
 const SCALE_FILTER2: image::imageops::FilterType = image::imageops::FilterType::Triangle;
 
-fn init<I, T>(args: I) -> cli::Args
+fn check_plugins() -> Result<()> {
+    let needed = [
+        "coreelements",
+        "playback",
+        "videoconvertscale",
+        "videofilter",
+        "audioconvert",
+        "audioresample",
+        "autodetect",
+    ];
+
+    let registry = gst::Registry::get();
+    let missing = needed
+        .iter()
+        .filter(|n| registry.find_plugin(n).is_none())
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if !missing.is_empty() {
+        Err(Error::other(format!(
+            "Missing GStreamer plugins: {missing:?}"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+fn init<I, T>(args: I) -> Result<cli::Args>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
     gst::init().unwrap();
+
+    check_plugins()?;
 
     // This could be solved in a cleaner way when GStreamer adds support for
     // sorting decoder factories in uridecodebin3.
@@ -28,7 +57,7 @@ where
     // and  https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/9672
     disable_hardware_decoders();
 
-    cli::Args::parse_from(args)
+    Ok(cli::Args::parse_from(args))
 }
 
 pub fn main_audio_thumbnailer<I, T>(args: I) -> Result<()>
@@ -36,7 +65,7 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let args = init(args);
+    let args = init(args)?;
 
     get_audio_thumbnail_source(&args.source.uri())?
         .ok_or(Error::other("No tag image found"))?
@@ -51,7 +80,7 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let args = init(args);
+    let args = init(args)?;
 
     get_video_thumbnail_source(&args.source.uri(), args.size)?
         .write_png(&args.output, args.size)

@@ -10,6 +10,11 @@ $ cargo run --bin gst-video-thumbnailer -- -p video.mp4 -o thumbnail.png -s 512
 $ cargo run --bin gst-audio-thumbnailer -- -p audio.mp3 -o thumbnail.png -s 512
 ```
 
+## Dependencies
+
+As the thumbnailers are using GStreamer for parsing and decoding the files, it is necessary to install the required GStreamer plugins with the codecs required for handling the files.
+In addition, at least all plugins from GStreamer core and gst-plugins-base are required, as well as the `autodetect` and `videofilter` plugins from gst-plugins-good.
+
 ## Benchmarking
 
 To assess the performance impact of a code change:
