@@ -1,3 +1,7 @@
+## 1.0.rc
+
+- Check if required GStreamer plugins are available before startup
+
 ## 1.0.alpha.3
 
 - First release as official GNOME software.
