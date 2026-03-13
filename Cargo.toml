@@ -1,6 +1,6 @@
 [package]
 name = "gst-thumbnailers"
-version = "1.0.0-rc"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.92"
 license = "GPL-3.0-or-later"
@@ -21,7 +21,7 @@ clap = { version = "4.5.51", default-features = false, features = [
     "help",
     "usage",
 ] }
-gly = { version = "0.1.0-rc", package = "libglycin-rebind" }
+gly = { version = "0.1.0", package = "libglycin-rebind" }
 image = { version = "0.25.8", default-features = false }
 
 [dev-dependencies]
