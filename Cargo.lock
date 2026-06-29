@@ -403,7 +403,7 @@ dependencies = [
 
 [[package]]
 name = "gst-thumbnailers"
-version = "1.0.0"
+version = "1.1.0-alpha"
 dependencies = [
  "clap",
  "criterion",
