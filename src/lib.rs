@@ -12,8 +12,7 @@ use gio::glib;
 use gio::prelude::*;
 use gst::prelude::*;
 
-const SCALE_FILTER1: image::imageops::FilterType = image::imageops::FilterType::Nearest;
-const SCALE_FILTER2: image::imageops::FilterType = image::imageops::FilterType::Triangle;
+const SCALE_FILTER: image::imageops::FilterType = image::imageops::FilterType::Triangle;
 
 fn check_plugins() -> Result<()> {
     let needed = [
@@ -599,20 +598,7 @@ fn resize<T: image::Pixel<Subpixel = u8> + 'static>(
         image::ImageBuffer::<T, _>::from_raw(frame.width(), frame.height(), frame.buf_bytes())
             .unwrap();
 
-    let rought_scaled = image::imageops::resize(
-        &img,
-        thumbnail_width * 2,
-        thumbnail_height * 2,
-        SCALE_FILTER1,
-    );
-
-    image::imageops::resize(
-        &rought_scaled,
-        thumbnail_width,
-        thumbnail_height,
-        SCALE_FILTER2,
-    )
-    .into_raw()
+    image::imageops::resize(&img, thumbnail_width, thumbnail_height, SCALE_FILTER).into_raw()
 }
 
 pub fn variance(xs: &[u8], width: u32, stride: u32, height: u32) -> f32 {
